@@ -1,0 +1,162 @@
+// SurgeWatch Relational Database Schema
+// Optimized for zero-friction local development (SQLite) and 100% production-compatible with PostgreSQL
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id               String               @id @default(uuid())
+  email            String               @unique
+  passwordHash     String
+  fullName         String
+  phone            String?
+  role             String               @default("PATIENT") // PATIENT, HOSPITAL_ADMIN, PLATFORM_ADMIN
+  isActive         Boolean              @default(true)
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  memberships      HospitalMembership[]
+  accessRequests   HospitalAccessRequest[]
+  auditLogs        ResourceUpdateAudit[]
+
+  @@index([email])
+}
+
+model Hospital {
+  id                     String                 @id @default(uuid())
+  name                   String
+  slug                   String                 @unique
+  address                String
+  area                   String                 // e.g. "Kalasipalya", "Koramangala", "Indiranagar"
+  city                   String                 @default("Bengaluru")
+  state                  String                 @default("Karnataka")
+  pincode                String
+  latitude               Float
+  longitude              Float
+  emergencyContactPhone  String                 // 24/7 direct casualty triage desk line
+  secondaryContactPhone  String?
+  officialEmail          String
+  websiteUrl             String?
+  emergencyServices      String                 // JSON Array string
+  verificationStatus     String                 @default("VERIFIED") // PENDING, VERIFIED, REJECTED
+  operatingStatus        String                 @default("OPERATIONAL") // OPERATIONAL, DIVERTING_EMERGENCIES, AT_CAPACITY
+  isDemoData             Boolean                @default(false)
+  lastResourceUpdate     DateTime               @default(now())
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
+
+  memberships            HospitalMembership[]
+  beds                   BedAvailability[]
+  staff                  StaffAvailability[]
+  ambulances             AmbulanceAvailability[]
+  auditLogs              ResourceUpdateAudit[]
+  accessRequests         HospitalAccessRequest[]
+
+  @@index([latitude, longitude])
+  @@index([city, area])
+}
+
+model HospitalMembership {
+  id           String      @id @default(uuid())
+  userId       String
+  hospitalId   String
+  assignedRole String      @default("ADMIN") // ADMIN, STAFF
+  isActive     Boolean     @default(true)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hospital     Hospital    @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, hospitalId])
+}
+
+model BedAvailability {
+  id                 String       @id @default(uuid())
+  hospitalId         String
+  category           String       @default("EMERGENCY_ICU") // EMERGENCY_ICU, EMERGENCY_GENERAL, TRAUMA_RESUSCITATION, PEDIATRIC_EMERGENCY, OXYGEN_CRITICAL
+  totalBeds          Int          @default(0)
+  occupiedBeds       Int          @default(0)
+  availableBeds      Int          @default(0)
+  lastUpdated        DateTime     @default(now())
+  updatedByUserId    String?
+  dataFreshnessNotes String?
+
+  hospital           Hospital     @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+
+  @@index([hospitalId, category])
+}
+
+model StaffAvailability {
+  id                      String        @id @default(uuid())
+  hospitalId              String
+  staffCategory           String        // EMERGENCY_PHYSICIAN, TRAUMA_SURGEON, ANESTHESIOLOGIST, ICU_TRIAGE_NURSE, DUTY_MEDICAL_OFFICER
+  scheduledOnDutyCount    Int           @default(0)
+  currentlyAvailableCount Int           @default(0)
+  metricDefinition        String        // e.g. "Doctors unassigned and ready for immediate trauma triage"
+  lastUpdated             DateTime      @default(now())
+  updatedByUserId         String?
+
+  hospital                Hospital      @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+
+  @@index([hospitalId, staffCategory])
+}
+
+model AmbulanceAvailability {
+  id                 String          @id @default(uuid())
+  hospitalId         String
+  registrationPlate  String?         // Obfuscated or identifier (e.g. KA-01-EA-108)
+  ambulanceType      String          @default("ADVANCED_LIFE_SUPPORT_ALS") // ADVANCED_LIFE_SUPPORT_ALS, BASIC_LIFE_SUPPORT_BLS, MOBILE_ICU
+  status             String          @default("AVAILABLE_READY") // AVAILABLE_READY, DISPATCHED_IN_TRANSIT, UNDER_MAINTENANCE
+  dispatchNotes      String?
+  lastUpdated        DateTime        @default(now())
+  updatedByUserId    String?
+
+  hospital           Hospital        @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+
+  @@index([hospitalId, status])
+}
+
+model ResourceUpdateAudit {
+  id               String       @id @default(uuid())
+  hospitalId       String
+  changedByUserId  String
+  resourceCategory String       // BEDS, STAFF, AMBULANCE, PROFILE
+  previousState    String       // JSON string
+  newState         String       // JSON string
+  changeSummary    String
+  timestamp        DateTime     @default(now())
+  ipAddress        String?
+  userAgent        String?
+
+  hospital         Hospital     @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  user             User         @relation(fields: [changedByUserId], references: [id], onDelete: Cascade)
+
+  @@index([hospitalId, timestamp])
+}
+
+model HospitalAccessRequest {
+  id                   String             @id @default(uuid())
+  userId               String
+  hospitalName         String
+  hospitalAddress      String
+  area                 String
+  pincode              String
+  contactPhone         String
+  officialEmail        String
+  hospitalRegNumber    String
+  status               String             @default("PENDING") // PENDING, APPROVED, REJECTED
+  reviewNotes          String?
+  hospitalId           String?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hospital             Hospital?          @relation(fields: [hospitalId], references: [id], onDelete: SetNull)
+}

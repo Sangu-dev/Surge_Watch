@@ -1,0 +1,25 @@
+# Server Environment & Secrets
+.env
+.env.*
+*.env
+!.env.example
+
+# Database files
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+prisma/*.db
+prisma/dev.db
+dev.db
+
+# Dependencies & Build
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Logs
+*.log
+logs/

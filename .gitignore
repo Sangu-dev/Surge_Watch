@@ -1,0 +1,123 @@
+# ==============================================================================
+# SurgeWatch Root .gitignore
+# Strictly excludes all privacy-sensitive files, environment variables,
+# databases, logs, dependencies, and build artifacts.
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Environment & Secrets (Privacy Critical)
+# ------------------------------------------------------------------------------
+.env
+.env.*
+*.env
+!.env.example
+*.env.local
+*.env.development.local
+*.env.test.local
+*.env.production.local
+
+# Private keys, certificates, credentials
+*.pem
+*.key
+*.cert
+*.crt
+*.pfx
+*.p12
+*.id_rsa
+jwt.key
+secrets/
+credentials/
+auth_tokens/
+
+# ------------------------------------------------------------------------------
+# 2. Database Files (Privacy & Data Protection)
+# ------------------------------------------------------------------------------
+dev.db
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+server/prisma/dev.db
+server/prisma/*.db
+server/dev.db
+
+# ------------------------------------------------------------------------------
+# 3. Dependencies
+# ------------------------------------------------------------------------------
+node_modules/
+client/node_modules/
+server/node_modules/
+.pnp
+.pnp.js
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+
+# ------------------------------------------------------------------------------
+# 4. Build Outputs & Compilations
+# ------------------------------------------------------------------------------
+dist/
+dist-ssr/
+build/
+out/
+client/dist/
+server/dist/
+*.tsbuildinfo
+.rollup.cache/
+
+# ------------------------------------------------------------------------------
+# 5. Logs & Temporary Debugging Files
+# ------------------------------------------------------------------------------
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+*.log.*
+server/*.log
+
+# ------------------------------------------------------------------------------
+# 6. IDEs & Operating System Artifacts
+# ------------------------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# ------------------------------------------------------------------------------
+# 7. Testing, Coverage & Caches
+# ------------------------------------------------------------------------------
+coverage/
+.nyc_output/
+.turbo/
+.parcel-cache/
+.eslintcache/
+.oxlintcache/
+.cache/
+
+# ------------------------------------------------------------------------------
+# 8. Agentic & Workspace Scratch Folders
+# ------------------------------------------------------------------------------
+.system_generated/
+scratch/
+brain/
