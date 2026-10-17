@@ -109,12 +109,14 @@ app.get('/api/docs', (_req, res) => {
   });
 });
 
-// Mount modular route trees
+// Mount modular route trees (supports both /api/v1/ and /api/ prefixes)
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/hospitals', hospitalRoutes);
+app.use('/api/hospitals', hospitalRoutes);
 app.use('/api/v1/admin', adminRoutes);
 app.use('/api/v1/platform', platformRoutes);
 app.use('/api/v1/location', locationRoutes);
+app.use('/api/location', locationRoutes);
 
 // Global Error Handler
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

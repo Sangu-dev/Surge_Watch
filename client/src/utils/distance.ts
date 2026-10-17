@@ -8,6 +8,15 @@ export function calculateHaversineDistance(
   lat2: number,
   lon2: number
 ): number {
+  if (
+    typeof lat1 !== 'number' || typeof lon1 !== 'number' ||
+    typeof lat2 !== 'number' || typeof lon2 !== 'number' ||
+    isNaN(lat1) || isNaN(lon1) || isNaN(lat2) || isNaN(lon2) ||
+    lat1 < -90 || lat1 > 90 || lat2 < -90 || lat2 > 90 ||
+    lon1 < -180 || lon1 > 180 || lon2 < -180 || lon2 > 180
+  ) {
+    return Infinity;
+  }
   const R = 6371; // Earth's mean radius in km
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLon = ((lon2 - lon1) * Math.PI) / 180;

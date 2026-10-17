@@ -1,5 +1,5 @@
 import type { FC } from 'react';
-import { Phone, Navigation, Clock, UserCheck, Truck, ArrowUpRight, Bed, MapPin, AlertCircle, ShieldCheck } from 'lucide-react';
+import { Phone, Navigation, UserCheck, Truck, ArrowUpRight, Bed, MapPin, AlertCircle, ShieldCheck } from 'lucide-react';
 import type { Hospital } from '../types';
 import { FreshnessIndicator } from './FreshnessIndicator';
 
@@ -84,18 +84,17 @@ export const HospitalCard: FC<HospitalCardProps> = ({ hospital, rank, onViewDeta
           <p className="text-xs text-slate-500 mt-1 line-clamp-1">{hospital.address}</p>
         </div>
 
-        {/* Distance & Travel Time Callout */}
+        {/* Straight-line Distance Callout */}
         {hospital.distanceKm !== undefined && (
-          <div className="grid grid-cols-2 gap-2 bg-sky-50/70 border border-sky-100 rounded-xl p-3 text-xs text-slate-700">
+          <div className="bg-sky-50/70 border border-sky-100 rounded-xl p-3 text-xs text-slate-700 flex items-center justify-between gap-2">
             <div>
-              <span className="block text-[11px] font-medium text-slate-500">Straight-line (Aerial) Distance</span>
+              <span className="block text-[11px] font-medium text-slate-500">Straight-line Distance</span>
               <span className="font-extrabold text-sky-950 text-base">{hospital.distanceKm} km</span>
             </div>
-            <div>
-              <span className="block text-[11px] font-medium text-slate-500">Est. Urban Transit (Sirens/Clearance)</span>
-              <span className="font-extrabold text-sky-950 text-base flex items-center gap-1">
-                <Clock className="w-3.5 h-3.5 text-sky-600 inline" />
-                ~{hospital.estimatedTravelTimeMins ?? '--'} mins
+            <div className="text-right">
+              <span className="block text-[10px] text-slate-500">Facility Type</span>
+              <span className="font-bold text-slate-800 text-xs px-2 py-0.5 rounded bg-white border border-slate-200 inline-block mt-0.5">
+                {hospital.facilityType || 'Hospital'}
               </span>
             </div>
           </div>
@@ -181,14 +180,21 @@ export const HospitalCard: FC<HospitalCardProps> = ({ hospital, rank, onViewDeta
 
       {/* Action Footer */}
       <div className="px-4 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap">
-        <a
-          href={`tel:${hospital.emergencyContactPhone}`}
-          className="flex-1 min-w-[170px] inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs active:scale-98 transition-all"
-          aria-label={`Call emergency casualty desk for ${hospital.name}`}
-        >
-          <Phone className="w-4 h-4" />
-          <span>Call Casualty Desk</span>
-        </a>
+        {hospital.emergencyContactPhone ? (
+          <a
+            href={`tel:${hospital.emergencyContactPhone}`}
+            className="flex-1 min-w-[170px] inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs active:scale-98 transition-all"
+            aria-label={`Call emergency facility for ${hospital.name}`}
+          >
+            <Phone className="w-4 h-4" />
+            <span>Call Facility</span>
+          </a>
+        ) : (
+          <div className="flex-1 min-w-[170px] inline-flex items-center justify-center gap-1.5 px-3 py-2.5 bg-slate-100 text-slate-500 rounded-xl text-xs font-medium border border-slate-200">
+            <Phone className="w-3.5 h-3.5 text-slate-400" />
+            <span>Phone not listed in OSM</span>
+          </div>
+        )}
 
         <a
           href={directionsUrl}

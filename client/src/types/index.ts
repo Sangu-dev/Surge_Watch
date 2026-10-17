@@ -39,15 +39,18 @@ export interface Hospital {
   pincode: string;
   latitude: number;
   longitude: number;
-  emergencyContactPhone: string;
+  emergencyContactPhone?: string;
   secondaryContactPhone?: string;
   officialEmail?: string;
   websiteUrl?: string;
+  facilityType?: string;
   emergencyServices: string[];
   verificationStatus: 'PENDING' | 'VERIFIED' | 'REJECTED' | 'VERIFIED_LOCATION_ONLY';
   operatingStatus: OperatingStatus | string;
   isDemoData: boolean;
   dataSource?: 'osm' | 'local_registry' | 'demo';
+  sourceIdentifier?: string;
+  sourceAttribution?: string;
   capacityConnected?: boolean;
   capacityNotes?: string;
   lastResourceUpdate: string; // ISO date
@@ -91,12 +94,15 @@ export interface LocationState {
 export interface DiscoveryMetadata {
   requestedCoordinates: { lat: number; lng: number };
   requestedRadiusKm: number;
+  selectedRadiusKm?: number;
   effectiveRadiusKm: number;
-  wasExpanded: boolean;
-  expansionMessage: string;
+  wasExpanded?: boolean;
+  expansionMessage?: string;
   totalCandidatesFound: number;
   returnedCount: number;
   dataSource: string;
+  attribution?: string;
+  disclaimer?: string;
   cached: boolean;
   timestamp: string;
 }

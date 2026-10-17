@@ -6,13 +6,12 @@ export async function fetchNearbyHospitals(
   lat: number,
   lng: number,
   radius: number = 5,
-  limit: number = 5,
   service: string = 'ALL',
   sortBy: string = 'distance'
 ) {
   try {
     // 1. Try dedicated nearby hospital discovery endpoint (OpenStreetMap + Live Registry)
-    const nearbyUrl = `${API_BASE}/hospitals/nearby?lat=${lat}&lon=${lng}&radiusKm=${radius}&limit=${limit}&autoExpand=true`;
+    const nearbyUrl = `${API_BASE}/hospitals/nearby?lat=${lat}&lon=${lng}&radiusKm=${radius}`;
     const res = await fetch(nearbyUrl);
     if (res.ok) {
       const json = await res.json();

@@ -9,7 +9,6 @@ interface UseHospitalSearchOptions {
   lat: number;
   lng: number;
   radius: number;
-  limit?: number;
   service?: string;
   sortBy?: 'distance' | 'beds' | 'ambulances';
 }
@@ -18,7 +17,6 @@ export function useHospitalSearch({
   lat,
   lng,
   radius,
-  limit = 5,
   service = 'ALL',
   sortBy = 'distance',
 }: UseHospitalSearchOptions) {
@@ -34,8 +32,8 @@ export function useHospitalSearch({
     setError(null);
 
     try {
-      // 1. Attempt to fetch from real backend discovery service
-      const remote = await fetchNearbyHospitals(lat, lng, radius, limit, service, sortBy);
+      // 1. Attempt to fetch from real backend discovery service (OpenStreetMap Overpass + Local Database)
+      const remote = await fetchNearbyHospitals(lat, lng, radius, service, sortBy);
 
       if (remote) {
         setIsBackendConnected(true);
@@ -45,7 +43,7 @@ export function useHospitalSearch({
           setLoading(false);
           return;
         } else if (Array.isArray(remote)) {
-          setHospitals(remote.slice(0, limit));
+          setHospitals(remote);
           setLoading(false);
           return;
         }
@@ -67,7 +65,7 @@ export function useHospitalSearch({
         capacityConnected: true,
       };
     })
-      .filter((hosp) => hosp.distanceKm <= radius)
+      .filter((hosp) => hosp.distanceKm <= radius + 0.05)
       .filter((hosp) => {
         if (service === 'ALL') return true;
         if (service === 'ICU') {
@@ -96,16 +94,16 @@ export function useHospitalSearch({
           return bAmb - aAmb;
         }
         return 0;
-      })
-      .slice(0, limit);
+      });
 
     setHospitals(localFiltered);
     setMetadata({
       requestedCoordinates: { lat, lng },
       requestedRadiusKm: radius,
+      selectedRadiusKm: radius,
       effectiveRadiusKm: radius,
       wasExpanded: false,
-      expansionMessage: `Showing nearest hospitals within ${radius} km (Offline Geodesic Mode).`,
+      expansionMessage: `${localFiltered.length} hospitals found within ${radius} km (Offline Mode).`,
       totalCandidatesFound: localFiltered.length,
       returnedCount: localFiltered.length,
       dataSource: 'Local Emergency Registry (Offline Cache)',
@@ -113,7 +111,7 @@ export function useHospitalSearch({
       timestamp: new Date().toISOString(),
     });
     setLoading(false);
-  }, [lat, lng, radius, limit, service, sortBy]);
+  }, [lat, lng, radius, service, sortBy]);
 
   useEffect(() => {
     fetchResults();

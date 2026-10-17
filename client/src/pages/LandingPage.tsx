@@ -91,7 +91,6 @@ export const LandingPage: FC<LandingPageProps> = ({
     lat: location.lat,
     lng: location.lng,
     radius: searchRadius,
-    limit: 5,
     service: filterFacility,
     sortBy,
   });

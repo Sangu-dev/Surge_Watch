@@ -13,20 +13,23 @@ export interface NormalizedHospital {
   pincode: string;
   latitude: number;
   longitude: number;
-  emergencyContactPhone: string;
+  emergencyContactPhone?: string;
   secondaryContactPhone?: string;
   officialEmail?: string;
   websiteUrl?: string;
+  facilityType?: string;
   emergencyServices: string[];
   verificationStatus: 'VERIFIED' | 'VERIFIED_LOCATION_ONLY' | 'PENDING';
   operatingStatus: string;
   isDemoData: boolean;
   dataSource: 'osm' | 'local_registry' | 'demo';
+  sourceIdentifier?: string;
+  sourceAttribution?: string;
   capacityConnected: boolean;
   capacityNotes?: string;
   lastResourceUpdate: string;
   distanceKm: number;
-  estimatedTravelTimeMins: number;
+  estimatedTravelTimeMins?: number;
   beds: any[];
   staff: any[];
   ambulances: any[];
@@ -37,12 +40,13 @@ export interface NearbySearchResult {
   metadata: {
     requestedCoordinates: { lat: number; lng: number };
     requestedRadiusKm: number;
+    selectedRadiusKm: number;
     effectiveRadiusKm: number;
-    wasExpanded: boolean;
-    expansionMessage: string;
     totalCandidatesFound: number;
     returnedCount: number;
     dataSource: string;
+    attribution: string;
+    disclaimer: string;
     cached: boolean;
     timestamp: string;
   };
@@ -57,13 +61,13 @@ interface CacheEntry {
 const cache = new Map<string, CacheEntry>();
 const CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
-// Priority list of Overpass API mirrors
+// Priority list of Overpass API mirrors (fastest first)
 const OVERPASS_ENDPOINTS = [
   process.env.OVERPASS_API_URL,
   'https://overpass.openstreetmap.fr/api/interpreter',
-  'https://overpass-api.de/api/interpreter',
   'https://lz4.overpass-api.de/api/interpreter',
   'https://z.overpass-api.de/api/interpreter',
+  'https://overpass-api.de/api/interpreter',
 ].filter(Boolean) as string[];
 
 /**
@@ -532,6 +536,16 @@ function normalizeOsmElement(element: any, lat: number, lng: number): Normalized
   const name = tags.name || tags['name:en'] || tags.operator;
   if (!name || name.trim().length === 0) return null;
 
+  // Determine facility type from OSM tags
+  let facilityType = 'Hospital';
+  if (tags.amenity === 'clinic' || tags.healthcare === 'clinic') {
+    facilityType = 'Clinic';
+  } else if (tags.amenity === 'doctors') {
+    facilityType = 'Medical Clinic';
+  } else if (tags.healthcare === 'centre' || tags.amenity === 'health_post') {
+    facilityType = 'Health Centre';
+  }
+
   // Build address
   const street = tags['addr:street'] || '';
   const suburb = tags['addr:suburb'] || tags['addr:neighbourhood'] || tags['addr:district'] || '';
@@ -541,17 +555,16 @@ function normalizeOsmElement(element: any, lat: number, lng: number): Normalized
 
   const area = suburb || tags['addr:suburb'] || 'Bengaluru Urban';
 
-  // Contact phone
-  const phone = tags['emergency:phone'] || tags['contact:phone'] || tags.phone || '+91-80-22222222 (Casualty Enquiries)';
+  // Real contact phone - do not fabricate if absent
+  const phone = tags['emergency:phone'] || tags['contact:phone'] || tags.phone || undefined;
 
   // Services
-  const emergencyServices: string[] = ['24/7 Casualty Emergency Desk'];
+  const emergencyServices: string[] = ['Casualty / Emergency Desk'];
   if (tags.emergency === 'yes') emergencyServices.push('Emergency Certified Facility');
-  if (tags.healthcare === 'hospital') emergencyServices.push('Inpatient Emergency Services');
+  if (tags.healthcare === 'hospital') emergencyServices.push('Inpatient Healthcare Services');
   if (tags.wheelchair === 'yes') emergencyServices.push('Wheelchair Trauma Accessible');
 
   const distanceKm = calculateHaversineDistance(lat, lng, elLat, elLon);
-  const estimatedTravelTimeMins = estimateEmergencyTravelTime(distanceKm);
 
   const osmId = `osm-${element.type}-${element.id}`;
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
@@ -570,16 +583,18 @@ function normalizeOsmElement(element: any, lat: number, lng: number): Normalized
     emergencyContactPhone: phone,
     officialEmail: tags['contact:email'] || tags.email || undefined,
     websiteUrl: tags['contact:website'] || tags.website || undefined,
+    facilityType,
     emergencyServices,
     verificationStatus: 'VERIFIED_LOCATION_ONLY',
     operatingStatus: 'OPERATIONAL',
     isDemoData: false,
     dataSource: 'osm',
+    sourceIdentifier: osmId,
+    sourceAttribution: 'OpenStreetMap contributors (ODbL)',
     capacityConnected: false,
-    capacityNotes: 'Live bed availability not connected — Mapped geographic location from OpenStreetMap. Call casualty desk to confirm room & triage readiness.',
+    capacityNotes: 'Mapped geographic location from OpenStreetMap. Bed counts and live ER triage are not connected — call or visit directly.',
     lastResourceUpdate: new Date().toISOString(),
     distanceKm,
-    estimatedTravelTimeMins,
     beds: [],
     staff: [],
     ambulances: [],
@@ -707,36 +722,31 @@ async function getDbHospitals(lat: number, lng: number): Promise<NormalizedHospi
 }
 
 /**
- * Discovers hospitals around a given coordinate using OpenStreetMap Overpass API,
- * merging with verified local registry records, with search radius expansion.
+ * Discovers all hospitals around a given coordinate using OpenStreetMap Overpass API,
+ * merging with verified local database records and falling back to local emergency registry.
+ * Accurately filters by the exact requested radius (5 km, 10 km, or 15 km) with no arbitrary result limits.
  */
 export async function discoverNearbyHospitals(
   lat: number,
   lng: number,
-  initialRadiusKm: number = 5,
-  limit: number = 5,
-  autoExpand: boolean = true
+  radiusKm: number = 5
 ): Promise<NearbySearchResult> {
   // Validate coordinates
   if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
     throw new Error('Invalid geographic coordinates provided.');
   }
 
-  const requestedRadius = Math.max(1, Math.min(initialRadiusKm, 50));
-  const expansionLevels = [requestedRadius];
-  if (autoExpand) {
-    if (requestedRadius < 10) expansionLevels.push(10);
-    if (requestedRadius < 15) expansionLevels.push(15);
-    if (requestedRadius < 25) expansionLevels.push(25);
-  }
+  // Supported radii are strictly 5, 10, and 15 km
+  const supportedRadii = [5, 10, 15];
+  const requestedRadius = supportedRadii.includes(radiusKm) ? radiusKm : 5;
+  const radiusMeters = Math.round(requestedRadius * 1000);
 
-  let effectiveRadius = requestedRadius;
   let candidates: NormalizedHospital[] = [];
   let isCacheHit = false;
   let usedDataSource = 'OpenStreetMap Live Overpass API';
 
-  // Check cache for requested coordinates
-  const cacheKey = `${Math.round(lat * 100) / 100}:${Math.round(lng * 100) / 100}:${requestedRadius}`;
+  // Check cache for requested coordinates and radius
+  const cacheKey = `${lat.toFixed(3)}:${lng.toFixed(3)}:${requestedRadius}`;
   const cached = cache.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
     candidates = cached.data;
@@ -744,112 +754,98 @@ export async function discoverNearbyHospitals(
   }
 
   if (candidates.length === 0) {
-    // 1. Fetch DB hospitals
+    // 1. Fetch DB hospitals within requested radius
     const dbHospitals = await getDbHospitals(lat, lng);
 
-    // 2. Iterate through expansion levels until we find at least `limit` hospitals
-    for (const currentRadius of expansionLevels) {
-      effectiveRadius = currentRadius;
-      const radiusMeters = Math.round(currentRadius * 1000);
+    // 2. Overpass QL query: searches for hospitals, clinics, and healthcare facilities
+    const overpassQuery = `
+      [out:json][timeout:15];
+      (
+        node["amenity"="hospital"](around:${radiusMeters},${lat},${lng});
+        way["amenity"="hospital"](around:${radiusMeters},${lat},${lng});
+        relation["amenity"="hospital"](around:${radiusMeters},${lat},${lng});
+        node["amenity"="clinic"]["emergency"="yes"](around:${radiusMeters},${lat},${lng});
+        way["amenity"="clinic"]["emergency"="yes"](around:${radiusMeters},${lat},${lng});
+        node["healthcare"="hospital"](around:${radiusMeters},${lat},${lng});
+        way["healthcare"="hospital"](around:${radiusMeters},${lat},${lng});
+      );
+      out center tags;
+    `;
 
-      // Overpass QL query: searches for hospitals, emergency clinics, and healthcare hospitals
-      const overpassQuery = `
-        [out:json][timeout:10];
-        (
-          node["amenity"="hospital"](around:${radiusMeters},${lat},${lng});
-          way["amenity"="hospital"](around:${radiusMeters},${lat},${lng});
-          node["amenity"="clinic"]["emergency"="yes"](around:${radiusMeters},${lat},${lng});
-          node["healthcare"="hospital"](around:${radiusMeters},${lat},${lng});
-        );
-        out center tags;
-      `;
+    const osmElements = await queryOverpassWithFailover(overpassQuery);
 
-      const osmElements = await queryOverpassWithFailover(overpassQuery);
+    let currentCandidates: NormalizedHospital[] = [];
 
-      let currentCandidates: NormalizedHospital[] = [];
-
-      if (osmElements && osmElements.length > 0) {
-        for (const el of osmElements) {
-          const norm = normalizeOsmElement(el, lat, lng);
-          if (norm && norm.distanceKm <= currentRadius) {
-            currentCandidates.push(norm);
-          }
+    if (osmElements && osmElements.length > 0) {
+      for (const el of osmElements) {
+        const norm = normalizeOsmElement(el, lat, lng);
+        if (norm && norm.distanceKm <= requestedRadius + 0.05) {
+          currentCandidates.push(norm);
         }
-      }
-
-      // Merge with DB hospitals that fall within currentRadius
-      for (const dbH of dbHospitals) {
-        if (dbH.distanceKm <= currentRadius) {
-          // If already discovered in OSM, prefer DB version because it has live telemetry
-          const existingIdx = currentCandidates.findIndex(
-            (c) => calculateHaversineDistance(c.latitude, c.longitude, dbH.latitude, dbH.longitude) < 0.2
-          );
-          if (existingIdx !== -1) {
-            currentCandidates[existingIdx] = dbH;
-          } else {
-            currentCandidates.push(dbH);
-          }
-        }
-      }
-
-      // If Overpass returned 0 (e.g. rate limit or offline), fall back to curated Bengaluru registry
-      if (currentCandidates.length === 0) {
-        usedDataSource = 'Bengaluru Emergency Registry (Overpass Fallback)';
-        for (const regH of BENGALURU_REGISTRY_FALLBACK) {
-          const dist = calculateHaversineDistance(lat, lng, regH.latitude, regH.longitude);
-          if (dist <= currentRadius) {
-            currentCandidates.push({
-              ...regH,
-              distanceKm: dist,
-              estimatedTravelTimeMins: estimateEmergencyTravelTime(dist),
-            });
-          }
-        }
-      }
-
-      currentCandidates = deduplicateHospitals(currentCandidates);
-
-      if (currentCandidates.length >= limit || !autoExpand) {
-        candidates = currentCandidates;
-        break;
-      } else {
-        candidates = currentCandidates;
       }
     }
 
-    // Save to cache
+    // Merge with DB hospitals that fall strictly within requestedRadius
+    for (const dbH of dbHospitals) {
+      if (dbH.distanceKm <= requestedRadius + 0.05) {
+        // If already discovered in OSM, prefer DB version because it has live telemetry
+        const existingIdx = currentCandidates.findIndex(
+          (c) => calculateHaversineDistance(c.latitude, c.longitude, dbH.latitude, dbH.longitude) < 0.2
+        );
+        if (existingIdx !== -1) {
+          currentCandidates[existingIdx] = dbH;
+        } else {
+          currentCandidates.push(dbH);
+        }
+      }
+    }
+
+    // If Overpass returned 0 (rate limit or offline), fall back to curated Bengaluru registry
+    if (currentCandidates.length === 0) {
+      usedDataSource = 'Bengaluru Emergency Registry (Overpass Fallback)';
+      for (const regH of BENGALURU_REGISTRY_FALLBACK) {
+        const dist = calculateHaversineDistance(lat, lng, regH.latitude, regH.longitude);
+        if (dist <= requestedRadius + 0.05) {
+          currentCandidates.push({
+            ...regH,
+            distanceKm: dist,
+            facilityType: 'Hospital',
+            sourceIdentifier: regH.id,
+            sourceAttribution: 'Karnataka Emergency Healthcare Directory',
+          });
+        }
+      }
+    }
+
+    // Deduplicate
+    candidates = deduplicateHospitals(currentCandidates);
+
+    // Save to cache if records found
     if (candidates.length > 0) {
       cache.set(cacheKey, { timestamp: Date.now(), data: candidates });
     }
   }
 
-  // Sort strictly by distance (nearest to farthest)
+  // Filter strictly within requested radius (inclusive of boundary)
+  candidates = candidates.filter((h) => h.distanceKm <= requestedRadius + 0.05);
+
+  // Sort strictly by straight-line distance (nearest to farthest)
   candidates.sort((a, b) => a.distanceKm - b.distanceKm);
-
-  // Take top limit (default 5)
-  const nearestFive = candidates.slice(0, limit);
-
-  const wasExpanded = effectiveRadius > requestedRadius;
-  let expansionMessage = `Showing nearest hospitals within ${effectiveRadius} km.`;
-  if (wasExpanded) {
-    expansionMessage = `Found only ${candidates.length} hospital(s) within ${requestedRadius} km. Automatically expanded search perimeter to ${effectiveRadius} km to locate the nearest emergency facilities.`;
-  } else if (candidates.length === 0) {
-    expansionMessage = `No hospital records found within ${effectiveRadius} km. Try expanding search perimeter or selecting a nearby landmark.`;
-  }
 
   return {
     metadata: {
       requestedCoordinates: { lat, lng },
       requestedRadiusKm: requestedRadius,
-      effectiveRadiusKm: effectiveRadius,
-      wasExpanded,
-      expansionMessage,
+      selectedRadiusKm: requestedRadius,
+      effectiveRadiusKm: requestedRadius,
       totalCandidatesFound: candidates.length,
-      returnedCount: nearestFive.length,
+      returnedCount: candidates.length,
       dataSource: usedDataSource,
+      attribution: 'OpenStreetMap contributors (ODbL)',
+      disclaimer: 'OpenStreetMap healthcare facility records may be incomplete or outdated. Straight-line distances shown.',
       cached: isCacheHit,
       timestamp: new Date().toISOString(),
     },
-    hospitals: nearestFive,
+    hospitals: candidates,
   };
 }

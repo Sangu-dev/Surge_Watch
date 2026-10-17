@@ -108,7 +108,7 @@ function formatHospitalPayload(hosp: any, lat?: number, lng?: number): Normalize
 
 /**
  * Dedicated Real Hospital Discovery Endpoint
- * GET /api/v1/hospitals/nearby?lat=<lat>&lon=<lon>&radiusKm=5&limit=5&autoExpand=true
+ * GET /api/hospitals/nearby?lat=<lat>&lon=<lon>&radiusKm=5 (supports 5, 10, 15 km)
  */
 export const getNearbyHospitals = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -134,11 +134,19 @@ export const getNearbyHospitals = async (req: Request, res: Response): Promise<v
       return;
     }
 
-    const radiusKm = parseFloat((req.query.radiusKm as string) || (req.query.radius as string)) || 5;
-    const limit = Math.max(1, Math.min(parseInt(req.query.limit as string) || 5, 25));
-    const autoExpand = req.query.autoExpand !== 'false';
+    const radiusParam = req.query.radiusKm || req.query.radius;
+    const radiusKm = radiusParam !== undefined ? parseFloat(radiusParam as string) : 5;
 
-    const discoveryResult = await discoverNearbyHospitals(lat, lng, radiusKm, limit, autoExpand);
+    const supportedRadii = [5, 10, 15];
+    if (!supportedRadii.includes(radiusKm)) {
+      res.status(400).json({
+        success: false,
+        error: `Invalid radius: ${radiusKm} km is not supported. Supported radius values are strictly 5, 10, and 15 km.`,
+      });
+      return;
+    }
+
+    const discoveryResult = await discoverNearbyHospitals(lat, lng, radiusKm);
 
     res.json({
       success: true,
@@ -167,10 +175,8 @@ export const searchHospitals = async (req: Request, res: Response): Promise<void
     const radius = parseFloat((req.query.radius as string) || (req.query.radiusKm as string)) || 10;
     const serviceFilter = (req.query.service as string) || 'ALL';
     const sortBy = (req.query.sortBy as string) || 'distance';
-    const limit = parseInt(req.query.limit as string) || 20;
 
-    // Use discoverNearbyHospitals with autoExpand=false so requested radius is respected
-    const discoveryResult = await discoverNearbyHospitals(lat, lng, radius, limit, false);
+    const discoveryResult = await discoverNearbyHospitals(lat, lng, radius);
     let results = discoveryResult.hospitals;
 
     // Apply Service Filter

@@ -93,7 +93,6 @@ export const PatientSearchPage: FC = () => {
     lat: location.lat,
     lng: location.lng,
     radius: searchRadius,
-    limit: 5, // Strictly nearest 5 hospitals
     service: filterFacility,
     sortBy,
   });
@@ -152,7 +151,7 @@ export const PatientSearchPage: FC = () => {
             <div>
               <h2 className="text-sm font-bold text-slate-900">Accident Location & Device GPS</h2>
               <p className="text-xs text-slate-500">
-                Detect your live location or select the accident spot across Bengaluru to find the nearest 5 hospitals.
+                Detect your live location or pick an accident spot to discover all available hospitals within your selected radius.
               </p>
             </div>
 
@@ -304,20 +303,16 @@ export const PatientSearchPage: FC = () => {
           hospitalCount={filteredHospitals.length}
         />
 
-        {/* Search Expansion Notification Banner */}
-        {searchMetadata?.wasExpanded && (
-          <div className="bg-sky-50 border border-sky-300 rounded-2xl p-4 text-xs text-sky-950 flex items-start gap-3 shadow-xs">
-            <Info className="w-5 h-5 text-sky-600 flex-shrink-0 mt-0.5" />
-            <div className="space-y-0.5">
-              <strong className="font-bold text-sky-900 block text-sm">
-                Search Radius Automatically Expanded
-              </strong>
-              <p className="leading-relaxed text-sky-800">
-                {searchMetadata.expansionMessage}
-              </p>
-            </div>
+        {/* OpenStreetMap & Straight-line Distance Disclosure */}
+        <div className="bg-sky-50/80 border border-sky-200 rounded-xl p-3 text-xs text-sky-950 flex items-start gap-2.5 shadow-2xs">
+          <Info className="w-4 h-4 text-sky-600 flex-shrink-0 mt-0.5" />
+          <div className="space-y-0.5">
+            <strong className="font-bold text-sky-900 block">OpenStreetMap Facility Discovery</strong>
+            <p className="text-[11px] text-sky-800 leading-relaxed">
+              Hospital data retrieved from OpenStreetMap contributors. Facility records may be incomplete or outdated. Distances are straight-line measurements. Click "Directions" on any hospital for live driving navigation.
+            </p>
           </div>
-        )}
+        </div>
 
         {/* Facility Filter & Sort Toolbar */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-2xs text-xs">
@@ -353,7 +348,7 @@ export const PatientSearchPage: FC = () => {
               onChange={(e) => setSortBy(e.target.value as any)}
               className="bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-800"
             >
-              <option value="distance">Shortest Aerial Distance (Nearest First)</option>
+              <option value="distance">Straight-Line Distance (Nearest First)</option>
               <option value="beds">Available Beds</option>
               <option value="ambulances">Ready Ambulances</option>
             </select>
@@ -367,13 +362,13 @@ export const PatientSearchPage: FC = () => {
             <div className="flex items-center justify-between text-xs font-semibold text-slate-600 px-1">
               <span>Interactive Map View</span>
               <span className="text-sky-600 font-bold">
-                {searchMetadata?.effectiveRadiusKm || searchRadius} km Perimeter
+                {searchRadius} km Perimeter Circle
               </span>
             </div>
 
             <MapPreview
               accidentLocation={location}
-              radiusKm={searchMetadata?.effectiveRadiusKm || searchRadius}
+              radiusKm={searchRadius}
               hospitals={filteredHospitals}
               isTrackingLive={isTrackingLive}
               onSelectHospital={setSelectedHospital}
@@ -431,12 +426,12 @@ export const PatientSearchPage: FC = () => {
             <div className="bg-slate-900 text-white rounded-xl px-4 py-3 flex items-center justify-between text-xs">
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                <span className="font-bold">
-                  Top {filteredHospitals.length} Nearest Hospital Recommendations
+                <span className="font-bold text-sm">
+                  {filteredHospitals.length} Matching {filteredHospitals.length === 1 ? 'Hospital' : 'Hospitals'} within {searchRadius} km
                 </span>
               </div>
-              <span className="text-slate-300">
-                Sorted by Proximity
+              <span className="text-slate-300 text-[11px]">
+                Nearest to Farthest
               </span>
             </div>
 
@@ -465,23 +460,27 @@ export const PatientSearchPage: FC = () => {
                   No Hospitals Found Within {searchRadius} km
                 </h3>
                 <p className="text-xs text-slate-500 max-w-md mx-auto">
-                  Try expanding the search radius to 10 km, 15 km, or 25 km, or selecting another accident coordinate in Bengaluru.
+                  Try expanding the search radius to 10 km or 15 km, or selecting another accident coordinate in Bengaluru.
                 </p>
                 <div className="pt-2 flex justify-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setSearchRadius(10)}
-                    className="px-4 py-2 bg-slate-900 text-white rounded-lg text-xs font-bold cursor-pointer"
-                  >
-                    Expand to 10 km
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSearchRadius(15)}
-                    className="px-4 py-2 bg-slate-900 text-white rounded-lg text-xs font-bold cursor-pointer"
-                  >
-                    Expand to 15 km
-                  </button>
+                  {searchRadius < 10 && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchRadius(10)}
+                      className="px-4 py-2 bg-slate-900 text-white rounded-lg text-xs font-bold cursor-pointer"
+                    >
+                      Expand to 10 km
+                    </button>
+                  )}
+                  {searchRadius < 15 && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchRadius(15)}
+                      className="px-4 py-2 bg-slate-900 text-white rounded-lg text-xs font-bold cursor-pointer"
+                    >
+                      Expand to 15 km
+                    </button>
+                  )}
                 </div>
               </div>
             ) : (
