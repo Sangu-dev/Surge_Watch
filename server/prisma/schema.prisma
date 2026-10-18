@@ -47,6 +47,7 @@ model Hospital {
   verificationStatus     String                 @default("VERIFIED") // PENDING, VERIFIED, REJECTED
   operatingStatus        String                 @default("OPERATIONAL") // OPERATIONAL, DIVERTING_EMERGENCIES, AT_CAPACITY
   isDemoData             Boolean                @default(false)
+  dataProvenance         String                 @default("DEMO") // DEMO, MANUAL, LIVE_INTEGRATION
   lastResourceUpdate     DateTime               @default(now())
   createdAt              DateTime               @default(now())
   updatedAt              DateTime               @updatedAt
@@ -57,6 +58,7 @@ model Hospital {
   ambulances             AmbulanceAvailability[]
   auditLogs              ResourceUpdateAudit[]
   accessRequests         HospitalAccessRequest[]
+  emergencyRequests      EmergencyRequest[]
 
   @@index([latitude, longitude])
   @@index([city, area])
@@ -87,6 +89,7 @@ model BedAvailability {
   lastUpdated        DateTime     @default(now())
   updatedByUserId    String?
   dataFreshnessNotes String?
+  dataProvenance     String       @default("DEMO") // DEMO, MANUAL, LIVE_INTEGRATION
 
   hospital           Hospital     @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
 
@@ -96,12 +99,14 @@ model BedAvailability {
 model StaffAvailability {
   id                      String        @id @default(uuid())
   hospitalId              String
-  staffCategory           String        // EMERGENCY_PHYSICIAN, TRAUMA_SURGEON, ANESTHESIOLOGIST, ICU_TRIAGE_NURSE, DUTY_MEDICAL_OFFICER
+  staffCategory           String        // EMERGENCY_PHYSICIAN, TRAUMA_SURGEON, ANESTHESIOLOGIST, ICU_TRIAGE_NURSE, DUTY_MEDICAL_OFFICER, EMERGENCY_NURSE, GENERAL_DUTY_NURSE
   scheduledOnDutyCount    Int           @default(0)
   currentlyAvailableCount Int           @default(0)
+  shiftStatus             String        @default("ON_DUTY") // ON_DUTY, DAY_SHIFT, NIGHT_SHIFT, ON_CALL, OFF_DUTY
   metricDefinition        String        // e.g. "Doctors unassigned and ready for immediate trauma triage"
   lastUpdated             DateTime      @default(now())
   updatedByUserId         String?
+  dataProvenance          String        @default("DEMO") // DEMO, MANUAL, LIVE_INTEGRATION
 
   hospital                Hospital      @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
 
@@ -109,18 +114,47 @@ model StaffAvailability {
 }
 
 model AmbulanceAvailability {
-  id                 String          @id @default(uuid())
-  hospitalId         String
-  registrationPlate  String?         // Obfuscated or identifier (e.g. KA-01-EA-108)
-  ambulanceType      String          @default("ADVANCED_LIFE_SUPPORT_ALS") // ADVANCED_LIFE_SUPPORT_ALS, BASIC_LIFE_SUPPORT_BLS, MOBILE_ICU
-  status             String          @default("AVAILABLE_READY") // AVAILABLE_READY, DISPATCHED_IN_TRANSIT, UNDER_MAINTENANCE
-  dispatchNotes      String?
-  lastUpdated        DateTime        @default(now())
-  updatedByUserId    String?
+  id                   String            @id @default(uuid())
+  hospitalId           String
+  registrationPlate    String?           // Vehicle identifier (e.g. KA-01-EA-108)
+  ambulanceType        String            @default("ADVANCED_LIFE_SUPPORT_ALS") // ADVANCED_LIFE_SUPPORT_ALS, BASIC_LIFE_SUPPORT_BLS, MOBILE_ICU
+  status               String            @default("AVAILABLE") // AVAILABLE, ASSIGNED, EN_ROUTE, AT_SCENE, COMPLETED, MAINTENANCE
+  currentLocation      String?           // e.g. "Hospital Base Station", "Kalasipalya", or GPS coords
+  currentLatitude      Float?
+  currentLongitude     Float?
+  assignedEmergencyId  String?
+  dispatchNotes        String?
+  lastUpdated          DateTime          @default(now())
+  updatedByUserId      String?
+  dataProvenance       String            @default("DEMO") // DEMO, MANUAL, LIVE_INTEGRATION
 
-  hospital           Hospital        @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  hospital             Hospital          @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  assignedEmergency    EmergencyRequest? @relation(fields: [assignedEmergencyId], references: [id], onDelete: SetNull)
 
   @@index([hospitalId, status])
+}
+
+model EmergencyRequest {
+  id                  String                  @id @default(uuid())
+  hospitalId          String?
+  patientName         String?
+  contactPhone        String?
+  emergencyType       String                  @default("TRAUMA_ACCIDENT") // TRAUMA_ACCIDENT, CARDIAC, STROKE, RESPIRATORY, GENERAL
+  severity            String                  @default("CRITICAL") // CRITICAL, URGENT, STABLE
+  latitude            Float
+  longitude           Float
+  pickupAddress       String?
+  status              String                  @default("PENDING") // PENDING, ASSIGNED, EN_ROUTE, AT_SCENE, COMPLETED, CANCELLED
+  assignedAmbulanceId String?
+  dispatchNotes       String?
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+
+  hospital            Hospital?               @relation(fields: [hospitalId], references: [id], onDelete: SetNull)
+  assignedAmbulances  AmbulanceAvailability[]
+
+  @@index([status])
+  @@index([hospitalId])
 }
 
 model ResourceUpdateAudit {

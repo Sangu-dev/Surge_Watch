@@ -5,27 +5,67 @@ export type OperatingStatus = 'OPERATIONAL' | 'DIVERTING_EMERGENCIES' | 'AT_CAPA
 export type LocationSource = 'GPS_ACCURATE' | 'MANUAL_SELECTION' | 'IP_APPROXIMATE' | 'CACHED_LOCATION';
 
 export interface BedBreakdown {
-  category: 'EMERGENCY_ICU' | 'EMERGENCY_GENERAL' | 'TRAUMA_RESUSCITATION' | 'PEDIATRIC_EMERGENCY' | 'OXYGEN_CRITICAL';
+  id?: string;
+  category: 'EMERGENCY_ICU' | 'EMERGENCY_GENERAL' | 'TRAUMA_RESUSCITATION' | 'PEDIATRIC_EMERGENCY' | 'OXYGEN_CRITICAL' | string;
   categoryLabel: string;
   totalBeds: number;
   occupiedBeds: number;
   availableBeds: number;
+  dataProvenance?: string;
 }
 
 export interface StaffBreakdown {
-  staffCategory: 'EMERGENCY_PHYSICIAN' | 'TRAUMA_SURGEON' | 'ANESTHESIOLOGIST' | 'ICU_TRIAGE_NURSE' | 'DUTY_MEDICAL_OFFICER';
+  id?: string;
+  staffCategory: 'EMERGENCY_PHYSICIAN' | 'TRAUMA_SURGEON' | 'ANESTHESIOLOGIST' | 'ICU_TRIAGE_NURSE' | 'DUTY_MEDICAL_OFFICER' | 'EMERGENCY_NURSE' | 'GENERAL_DUTY_NURSE' | string;
   label: string;
   scheduledOnDutyCount: number;
   currentlyAvailableCount: number;
+  shiftStatus?: string;
   metricDefinition: string;
+  dataProvenance?: string;
 }
 
 export interface AmbulanceInfo {
-  ambulanceType: 'ADVANCED_LIFE_SUPPORT_ALS' | 'BASIC_LIFE_SUPPORT_BLS' | 'MOBILE_ICU' | 'NEONATAL_AMBULANCE';
+  ambulanceType: 'ADVANCED_LIFE_SUPPORT_ALS' | 'BASIC_LIFE_SUPPORT_BLS' | 'MOBILE_ICU' | 'NEONATAL_AMBULANCE' | string;
   label: string;
   totalCount: number;
   availableReadyCount: number;
   inTransitCount: number;
+}
+
+export interface AmbulanceRecord {
+  id: string;
+  registrationPlate: string;
+  ambulanceType: string;
+  typeLabel?: string;
+  status: string; // AVAILABLE, ASSIGNED, EN_ROUTE, AT_SCENE, COMPLETED, MAINTENANCE
+  currentLocation?: string;
+  assignedEmergencyId?: string | null;
+  lastUpdated?: string;
+  dataProvenance?: string;
+}
+
+export interface BedsSummary {
+  totalBeds: number;
+  availableBeds: number;
+  occupiedBeds: number;
+  icuBeds: { total: number; available: number; occupied: number };
+  emergencyBeds: { total: number; available: number; occupied: number };
+}
+
+export interface StaffSummary {
+  doctorsOnDuty: number;
+  doctorsAvailable: number;
+  doctorShiftStatus?: string;
+  nursesOnDuty: number;
+  nursesAvailable: number;
+  nurseShiftStatus?: string;
+}
+
+export interface AmbulanceSummary {
+  totalAmbulances: number;
+  availableAmbulances: number;
+  assignedAmbulances: number;
 }
 
 export interface Hospital {
@@ -49,6 +89,9 @@ export interface Hospital {
   operatingStatus: OperatingStatus | string;
   isDemoData: boolean;
   dataSource?: 'osm' | 'local_registry' | 'demo';
+  dataProvenance?: 'DEMO' | 'MANUAL' | 'LIVE_INTEGRATION' | 'OSM_UNCONNECTED' | string;
+  provenanceNotice?: string;
+  isVerifiedLive?: boolean;
   sourceIdentifier?: string;
   sourceAttribution?: string;
   capacityConnected?: boolean;
@@ -60,6 +103,12 @@ export interface Hospital {
   beds: BedBreakdown[];
   staff: StaffBreakdown[];
   ambulances: AmbulanceInfo[];
+  ambulanceFleet?: AmbulanceRecord[];
+
+  // Resource summaries
+  bedsSummary?: BedsSummary;
+  staffSummary?: StaffSummary;
+  ambulanceSummary?: AmbulanceSummary;
 
   // Computed for patient search
   distanceKm?: number;
@@ -70,6 +119,29 @@ export interface Hospital {
     minutesAgo: number;
     isStaleWarning: boolean;
   };
+}
+
+export interface EmergencyRequest {
+  id: string;
+  hospitalId?: string | null;
+  patientName?: string | null;
+  contactPhone?: string | null;
+  emergencyType: string;
+  severity: string;
+  latitude: number;
+  longitude: number;
+  pickupAddress?: string | null;
+  status: string; // PENDING, ASSIGNED, EN_ROUTE, AT_SCENE, COMPLETED, CANCELLED
+  assignedAmbulanceId?: string | null;
+  dispatchNotes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  hospital?: {
+    id: string;
+    name: string;
+    emergencyContactPhone?: string;
+  } | null;
+  assignedAmbulances?: AmbulanceRecord[];
 }
 
 export interface LandmarkPreset {

@@ -10,7 +10,10 @@
     "start": "node dist/index.js",
     "seed": "tsx prisma/seed.ts",
     "test": "echo \"Stage 2 & 3 Tests Passing\" && exit 0",
-    "test:nearby": "tsx src/testStageNearbyHospitals.ts"
+    "test:nearby": "tsx src/testStageNearbyHospitals.ts",
+    "test:stage5": "tsx src/testStage5.ts",
+    "test:stage6": "tsx src/testStage6.ts",
+    "test:features": "tsx src/testResourceFeatures.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

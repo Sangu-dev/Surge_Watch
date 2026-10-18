@@ -17,14 +17,17 @@ import {
   ArrowLeft,
   SlidersHorizontal,
   AlertTriangle,
+  AlertCircle,
   Info,
   ShieldAlert,
-  RefreshCw,
   Radio,
   Globe2,
   Navigation,
-  CheckCircle2
+  CheckCircle2,
+  Truck,
+  X
 } from 'lucide-react';
+import { dispatchEmergencyAmbulance, releaseEmergencyAmbulance } from '../services/api';
 
 export const PatientSearchPage: FC = () => {
   // 4-tier Device Location & Fallback Hook
@@ -46,6 +49,17 @@ export const PatientSearchPage: FC = () => {
   const [filterFacility, setFilterFacility] = useState<string>('ALL');
   const [sortBy, setSortBy] = useState<'distance' | 'beds' | 'ambulances'>('distance');
   const [manualQuery, setManualQuery] = useState<string>('');
+
+  // SOS Ambulance Dispatch State
+  const [sosModalOpen, setSosModalOpen] = useState<boolean>(false);
+  const [targetHospitalForSos, setTargetHospitalForSos] = useState<Hospital | null>(null);
+  const [emergencyType, setEmergencyType] = useState<string>('TRAUMA_ACCIDENT');
+  const [patientName, setPatientName] = useState<string>('');
+  const [contactPhone, setContactPhone] = useState<string>('');
+  const [dispatchNotes, setDispatchNotes] = useState<string>('');
+  const [activeDispatch, setActiveDispatch] = useState<any | null>(null);
+  const [dispatchLoading, setDispatchLoading] = useState<boolean>(false);
+  const [dispatchError, setDispatchError] = useState<string | null>(null);
 
   const handleSelectLandmark = (preset: LandmarkPreset) => {
     selectManualLocation(preset.latitude, preset.longitude, `${preset.name} (${preset.area})`);
@@ -97,6 +111,60 @@ export const PatientSearchPage: FC = () => {
     sortBy,
   });
 
+  // Open SOS Ambulance Dispatch Drawer / Dialog
+  const handleOpenAmbulanceRequest = (hospital?: Hospital) => {
+    setTargetHospitalForSos(hospital || null);
+    setDispatchError(null);
+    setSosModalOpen(true);
+  };
+
+  // Submit Ambulance Dispatch
+  const handleConfirmDispatch = async () => {
+    setDispatchLoading(true);
+    setDispatchError(null);
+    try {
+      const res = await dispatchEmergencyAmbulance({
+        hospitalId: targetHospitalForSos?.id,
+        patientName: patientName.trim() || 'Emergency Patient',
+        contactPhone: contactPhone.trim() || '+91 99000 12345',
+        emergencyType,
+        severity: 'CRITICAL',
+        latitude: location.lat,
+        longitude: location.lng,
+        pickupAddress: location.label,
+        dispatchNotes: dispatchNotes.trim() || 'Immediate casualty transfer requested via SurgeWatch BLR',
+      });
+      setActiveDispatch(res);
+      refetch();
+    } catch (e: any) {
+      setDispatchError(e.message || 'Failed to dispatch ambulance.');
+    } finally {
+      setDispatchLoading(false);
+    }
+  };
+
+  // Release Emergency Ambulance back to AVAILABLE
+  const handleReleaseDispatch = async () => {
+    if (!activeDispatch?.emergencyRequest?.id) {
+      setActiveDispatch(null);
+      setSosModalOpen(false);
+      return;
+    }
+    setDispatchLoading(true);
+    try {
+      await releaseEmergencyAmbulance(activeDispatch.emergencyRequest.id);
+      setActiveDispatch(null);
+      setSosModalOpen(false);
+      refetch();
+    } catch (e: any) {
+      console.warn('Failed to release ambulance:', e);
+      setActiveDispatch(null);
+      setSosModalOpen(false);
+    } finally {
+      setDispatchLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans pb-16">
       {/* Top Navbar Header */}
@@ -126,6 +194,14 @@ export const PatientSearchPage: FC = () => {
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => handleOpenAmbulanceRequest()}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
+            >
+              <Truck className="w-4 h-4" />
+              <span>Request Ambulance</span>
+            </button>
             <a
               href="tel:112"
               className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors"
@@ -161,42 +237,29 @@ export const PatientSearchPage: FC = () => {
                 type="button"
                 onClick={acquireGpsLocation}
                 disabled={gpsLoading}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-300 rounded-xl text-xs font-bold cursor-pointer transition-colors disabled:opacity-50"
-                title="Acquire exact current coordinates using device GPS"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold shadow-2xs transition-all disabled:opacity-50 cursor-pointer"
               >
-                <Compass className={`w-4 h-4 text-sky-600 ${gpsLoading ? 'animate-spin' : ''}`} />
-                <span>{gpsLoading ? 'Detecting GPS...' : 'Use My Current Location'}</span>
+                <Compass className={`w-4 h-4 text-sky-400 ${gpsLoading ? 'animate-spin' : ''}`} />
+                <span>{gpsLoading ? 'Acquiring Satellite GPS...' : 'Use Precise GPS'}</span>
               </button>
 
-              <button
-                type="button"
-                onClick={refreshLocation}
-                disabled={gpsLoading}
-                className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-200 rounded-xl transition-colors cursor-pointer"
-                title="Refresh location coordinates"
-              >
-                <RefreshCw className={`w-4 h-4 ${gpsLoading ? 'animate-spin' : ''}`} />
-              </button>
-
-              {/* Continuous Live Tracking Toggle */}
               <button
                 type="button"
                 onClick={isTrackingLive ? stopLiveTracking : startLiveTracking}
-                className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold cursor-pointer transition-all ${
+                className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                   isTrackingLive
-                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs'
+                    ? 'bg-red-100 text-red-800 border border-red-300 hover:bg-red-200 animate-pulse'
                     : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
                 }`}
-                title="Continuously track moving position during an active emergency"
               >
-                <Radio className={`w-4 h-4 ${isTrackingLive ? 'animate-pulse text-white' : 'text-slate-500'}`} />
-                <span>{isTrackingLive ? 'Tracking Active (Stop)' : 'Live Emergency GPS Tracking'}</span>
+                <Radio className={`w-4 h-4 ${isTrackingLive ? 'text-red-600' : 'text-slate-500'}`} />
+                <span>{isTrackingLive ? 'Live Tracking Active' : 'Start Live GPS Track'}</span>
               </button>
             </div>
           </div>
 
-          {/* Manual Query Input */}
-          <form onSubmit={handleManualSearch} className="flex flex-col sm:flex-row gap-2">
+          {/* Search by Neighborhood */}
+          <form onSubmit={handleManualSearch} className="flex gap-2">
             <div className="relative flex-1">
               <MapPin className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
@@ -324,13 +387,16 @@ export const PatientSearchPage: FC = () => {
             {[
               { id: 'ALL', label: 'All Emergency' },
               { id: 'ICU', label: 'ICU Available' },
-              { id: 'TRAUMA', label: 'Level 1 Trauma' },
+              { id: 'ER', label: 'ER Beds Available' },
+              { id: 'DOCTORS', label: 'Doctors on Duty' },
+              { id: 'NURSES', label: 'Nurses on Duty' },
               { id: 'AMBULANCE', label: 'Ambulances Ready' },
+              { id: 'TRAUMA', label: 'Level 1 Trauma' },
             ].map((f) => (
               <button
                 key={f.id}
                 onClick={() => setFilterFacility(f.id)}
-                className={`px-3 py-1.5 rounded-lg font-semibold whitespace-nowrap cursor-pointer ${
+                className={`px-3 py-1.5 rounded-lg font-semibold whitespace-nowrap cursor-pointer transition-colors ${
                   filterFacility === f.id
                     ? 'bg-slate-900 text-white'
                     : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
@@ -346,7 +412,7 @@ export const PatientSearchPage: FC = () => {
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as any)}
-              className="bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-800"
+              className="bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-800 cursor-pointer"
             >
               <option value="distance">Straight-Line Distance (Nearest First)</option>
               <option value="beds">Available Beds</option>
@@ -492,6 +558,7 @@ export const PatientSearchPage: FC = () => {
                     rank={idx + 1}
                     onViewDetails={setSelectedHospital}
                     onFocusOnMap={handleFocusOnMap}
+                    onRequestAmbulance={handleOpenAmbulanceRequest}
                   />
                 ))}
               </div>
@@ -500,10 +567,196 @@ export const PatientSearchPage: FC = () => {
         </div>
       </main>
 
+      {/* Hospital Detail Modal */}
       <HospitalDetailModal
         hospital={selectedHospital}
         onClose={() => setSelectedHospital(null)}
+        onRequestAmbulance={handleOpenAmbulanceRequest}
       />
+
+      {/* Emergency Ambulance SOS Dispatch Dialog */}
+      {sosModalOpen && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-lg w-full border border-slate-200 shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+            {/* Dialog Header */}
+            <div className="bg-slate-900 text-white p-5 flex items-start justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center font-bold">
+                  <Truck className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-lg text-white">Emergency Ambulance Dispatch</h3>
+                  <p className="text-xs text-slate-400">
+                    {targetHospitalForSos ? `From ${targetHospitalForSos.name}` : 'From Nearest Available Facility'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSosModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Dialog Body */}
+            <div className="p-5 space-y-4 overflow-y-auto">
+              {/* Mandatory Safety Notice */}
+              <div className="bg-amber-50 border border-amber-300 rounded-xl p-3 text-xs text-amber-950 space-y-1">
+                <div className="flex items-center gap-1.5 font-bold text-amber-900">
+                  <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                  <span>Important Demonstration Disclaimer</span>
+                </div>
+                <p className="text-[11px] text-amber-800 leading-relaxed">
+                  SurgeWatch records internal software assignments for system demonstration. This does <strong>not</strong> dispatch real municipal vehicles or connect to 108/GVK EMRI government emergency services. For verified life-threatening emergencies, dial <strong>112</strong> or <strong>108</strong> immediately.
+                </p>
+              </div>
+
+              {activeDispatch ? (
+                /* Active Dispatch Status View */
+                <div className="bg-emerald-50 border border-emerald-300 rounded-xl p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="inline-flex items-center gap-1.5 font-bold text-xs uppercase px-2 py-0.5 rounded bg-emerald-200 text-emerald-900">
+                      <span className="w-2 h-2 rounded-full bg-emerald-600 animate-ping" />
+                      Status: {activeDispatch.assignedAmbulance?.status || 'ASSIGNED'}
+                    </span>
+                    <span className="text-xs text-slate-500 font-mono">
+                      #{activeDispatch.emergencyRequest?.id?.slice(0, 8)}
+                    </span>
+                  </div>
+
+                  {activeDispatch.assignedAmbulance ? (
+                    <div className="bg-white rounded-lg p-3 border border-emerald-200 text-xs space-y-1.5">
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-500 font-semibold">Assigned Vehicle:</span>
+                        <span className="font-mono font-extrabold text-slate-900 text-sm">
+                          {activeDispatch.assignedAmbulance.registrationPlate}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-500 font-semibold">Ambulance Type:</span>
+                        <span className="font-bold text-slate-800">
+                          {activeDispatch.assignedAmbulance.ambulanceType}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-500 font-semibold">Station / Location:</span>
+                        <span className="text-slate-700">
+                          {activeDispatch.assignedAmbulance.currentLocation || 'Hospital Station Base'}
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-amber-800">
+                      Emergency request registered. No ambulance currently available at selected facility.
+                    </p>
+                  )}
+
+                  <div className="text-xs text-slate-600">
+                    <span className="font-semibold">Accident Pickup Location:</span> {location.label}
+                  </div>
+
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={handleReleaseDispatch}
+                      disabled={dispatchLoading}
+                      className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs transition-colors cursor-pointer"
+                    >
+                      {dispatchLoading ? 'Releasing Vehicle...' : 'Complete & Release Ambulance back to AVAILABLE'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                /* Dispatch Form */
+                <div className="space-y-3 text-xs">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Accident Location</label>
+                    <div className="bg-slate-100 border border-slate-200 rounded-xl p-2.5 font-semibold text-slate-800 flex items-center justify-between">
+                      <span className="truncate">{location.label}</span>
+                      <span className="text-[10px] text-slate-500 font-mono">[{location.lat.toFixed(4)}, {location.lng.toFixed(4)}]</span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Emergency Casualty Type</label>
+                    <select
+                      value={emergencyType}
+                      onChange={(e) => setEmergencyType(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 font-semibold text-slate-800 cursor-pointer"
+                    >
+                      <option value="TRAUMA_ACCIDENT">Road Traffic Accident (RTA) / Trauma</option>
+                      <option value="CARDIAC">Acute Cardiac Arrest / Chest Pain</option>
+                      <option value="STROKE">Stroke / Neurological Triage</option>
+                      <option value="RESPIRATORY">Severe Acute Respiratory Distress</option>
+                      <option value="GENERAL">General Medical Emergency</option>
+                    </select>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">Patient Name</label>
+                      <input
+                        type="text"
+                        value={patientName}
+                        onChange={(e) => setPatientName(e.target.value)}
+                        placeholder="e.g. Unknown Pedestrian"
+                        className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2 font-medium text-slate-900"
+                      />
+                    </div>
+                    <div>
+                      <label className="block font-bold text-slate-700 mb-1">Contact Phone</label>
+                      <input
+                        type="text"
+                        value={contactPhone}
+                        onChange={(e) => setContactPhone(e.target.value)}
+                        placeholder="+91 99000 12345"
+                        className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2 font-medium text-slate-900"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">Triage Casualty Notes</label>
+                    <textarea
+                      value={dispatchNotes}
+                      onChange={(e) => setDispatchNotes(e.target.value)}
+                      rows={2}
+                      placeholder="e.g. Multiple injuries reported near Silk Board flyover ramp..."
+                      className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2 font-medium text-slate-900 text-xs"
+                    />
+                  </div>
+
+                  {dispatchError && (
+                    <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-red-800 text-xs flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
+                      <span>{dispatchError}</span>
+                    </div>
+                  )}
+
+                  <div className="pt-2 flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSosModalOpen(false)}
+                      className="px-4 py-2 border border-slate-300 hover:bg-slate-100 rounded-xl text-slate-700 font-semibold"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleConfirmDispatch}
+                      disabled={dispatchLoading}
+                      className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold shadow-sm cursor-pointer disabled:opacity-50"
+                    >
+                      {dispatchLoading ? 'Assigning Vehicle...' : 'Confirm Ambulance Assignment'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

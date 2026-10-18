@@ -4,6 +4,7 @@ import { fetchNearbyHospitals } from '../services/api';
 import { MOCK_HOSPITALS } from '../data/mockHospitals';
 import { calculateHaversineDistance, estimateEmergencyTravelTime } from '../utils/distance';
 import { getSocket } from '../services/socket';
+import { getHospitalWithResources } from '../utils/dummyResources';
 
 interface UseHospitalSearchOptions {
   lat: number;
@@ -38,12 +39,14 @@ export function useHospitalSearch({
       if (remote) {
         setIsBackendConnected(true);
         if (remote.hospitals && Array.isArray(remote.hospitals)) {
-          setHospitals(remote.hospitals);
+          const hydrated = remote.hospitals.map(getHospitalWithResources);
+          setHospitals(hydrated);
           setMetadata(remote.metadata || null);
           setLoading(false);
           return;
         } else if (Array.isArray(remote)) {
-          setHospitals(remote);
+          const hydrated = remote.map(getHospitalWithResources);
+          setHospitals(hydrated);
           setLoading(false);
           return;
         }
@@ -72,6 +75,24 @@ export function useHospitalSearch({
           const icu = hosp.beds.find((b) => b.category === 'EMERGENCY_ICU');
           return (icu?.availableBeds ?? 0) > 0;
         }
+        if (service === 'ER') {
+          const er = hosp.beds.find((b) => b.category === 'EMERGENCY_GENERAL' || b.category === 'TRAUMA_RESUSCITATION');
+          return (er?.availableBeds ?? 0) > 0;
+        }
+        if (service === 'DOCTORS') {
+          const docs = (hosp.staff || []).filter((s) =>
+            ['EMERGENCY_PHYSICIAN', 'TRAUMA_SURGEON', 'ANESTHESIOLOGIST', 'DUTY_MEDICAL_OFFICER'].includes(s.staffCategory)
+          );
+          const avail = docs.reduce((acc, s) => acc + (s.currentlyAvailableCount || 0), 0);
+          return avail > 0;
+        }
+        if (service === 'NURSES') {
+          const nurses = (hosp.staff || []).filter((s) =>
+            ['EMERGENCY_NURSE', 'ICU_TRIAGE_NURSE', 'GENERAL_DUTY_NURSE'].includes(s.staffCategory)
+          );
+          const avail = nurses.reduce((acc, s) => acc + (s.currentlyAvailableCount || 0), 0);
+          return avail > 0;
+        }
         if (service === 'TRAUMA') {
           return hosp.emergencyServices.some((s) => s.toLowerCase().includes('trauma'));
         }
@@ -96,7 +117,7 @@ export function useHospitalSearch({
         return 0;
       });
 
-    setHospitals(localFiltered);
+    setHospitals(localFiltered.map(getHospitalWithResources));
     setMetadata({
       requestedCoordinates: { lat, lng },
       requestedRadiusKm: radius,
@@ -121,9 +142,21 @@ export function useHospitalSearch({
   useEffect(() => {
     const socket = getSocket();
 
-    const handleHospitalUpdate = (event: { hospitalId: string; updatedAt: string; updatedBy?: string }) => {
+    const handleHospitalUpdate = (event: { hospitalId: string; updatedAt?: string; updatedBy?: string }) => {
       console.log('[Real-Time] Hospital availability broadcast received:', event);
-      setRealtimeNotification(`Live capacity update received at ${new Date(event.updatedAt).toLocaleTimeString()}`);
+      setRealtimeNotification(`Live capacity update received at ${new Date(event.updatedAt || Date.now()).toLocaleTimeString()}`);
+      fetchResults();
+
+      const timer = setTimeout(() => {
+        setRealtimeNotification(null);
+      }, 5000);
+
+      return () => clearTimeout(timer);
+    };
+
+    const handleAmbulanceUpdate = (event: any) => {
+      console.log('[Real-Time] Ambulance event received:', event);
+      setRealtimeNotification(`Ambulance fleet update: vehicle status transition at ${new Date().toLocaleTimeString()}`);
       fetchResults();
 
       const timer = setTimeout(() => {
@@ -134,9 +167,15 @@ export function useHospitalSearch({
     };
 
     socket.on('hospital_resource_updated', handleHospitalUpdate);
+    socket.on('ambulance_status_updated', handleAmbulanceUpdate);
+    socket.on('emergency_dispatched', handleAmbulanceUpdate);
+    socket.on('emergency_resolved', handleAmbulanceUpdate);
 
     return () => {
       socket.off('hospital_resource_updated', handleHospitalUpdate);
+      socket.off('ambulance_status_updated', handleAmbulanceUpdate);
+      socket.off('emergency_dispatched', handleAmbulanceUpdate);
+      socket.off('emergency_resolved', handleAmbulanceUpdate);
     };
   }, [fetchResults]);
 

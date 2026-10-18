@@ -8,6 +8,7 @@ import hospitalRoutes from './routes/hospitalRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import platformRoutes from './routes/platformRoutes.js';
 import locationRoutes from './routes/locationRoutes.js';
+import emergencyRoutes from './routes/emergencyRoutes.js';
 
 dotenv.config();
 
@@ -117,6 +118,8 @@ app.use('/api/v1/admin', adminRoutes);
 app.use('/api/v1/platform', platformRoutes);
 app.use('/api/v1/location', locationRoutes);
 app.use('/api/location', locationRoutes);
+app.use('/api/v1', emergencyRoutes);
+app.use('/api', emergencyRoutes);
 
 // Global Error Handler
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

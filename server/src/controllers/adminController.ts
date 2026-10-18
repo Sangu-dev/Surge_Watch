@@ -16,15 +16,19 @@ const UpdateResourcesSchema = z.object({
   staff: z.array(
     z.object({
       staffCategory: z.string(),
-      scheduledOnDutyCount: z.number().min(0),
-      currentlyAvailableCount: z.number().min(0),
+      scheduledOnDutyCount: z.number().min(0, 'Scheduled on duty count must be non-negative'),
+      currentlyAvailableCount: z.number().min(0, 'Currently available count must be non-negative'),
+      shiftStatus: z.string().optional(),
+      metricDefinition: z.string().optional(),
     })
   ).optional(),
   ambulances: z.array(
     z.object({
       id: z.string().optional(),
       ambulanceType: z.string(),
+      registrationPlate: z.string().optional(),
       status: z.string().optional(),
+      currentLocation: z.string().optional(),
       availableReadyCount: z.number().min(0).optional(),
       inTransitCount: z.number().min(0).optional(),
       totalCount: z.number().min(0).optional(),
@@ -79,6 +83,20 @@ export const updateHospitalResources = async (
                 availableBeds: b.availableBeds,
                 lastUpdated: new Date(),
                 updatedByUserId: userId,
+                dataProvenance: 'MANUAL',
+              },
+            });
+          } else {
+            await tx.bedAvailability.create({
+              data: {
+                hospitalId,
+                category: b.category,
+                totalBeds: b.totalBeds,
+                occupiedBeds: b.occupiedBeds,
+                availableBeds: b.availableBeds,
+                lastUpdated: new Date(),
+                updatedByUserId: userId,
+                dataProvenance: 'MANUAL',
               },
             });
           }
@@ -97,8 +115,25 @@ export const updateHospitalResources = async (
               data: {
                 scheduledOnDutyCount: s.scheduledOnDutyCount,
                 currentlyAvailableCount: s.currentlyAvailableCount,
+                shiftStatus: s.shiftStatus || existing.shiftStatus || 'ON_DUTY',
+                metricDefinition: s.metricDefinition || existing.metricDefinition,
                 lastUpdated: new Date(),
                 updatedByUserId: userId,
+                dataProvenance: 'MANUAL',
+              },
+            });
+          } else {
+            await tx.staffAvailability.create({
+              data: {
+                hospitalId,
+                staffCategory: s.staffCategory,
+                scheduledOnDutyCount: s.scheduledOnDutyCount,
+                currentlyAvailableCount: s.currentlyAvailableCount,
+                shiftStatus: s.shiftStatus || 'ON_DUTY',
+                metricDefinition: s.metricDefinition || `${s.staffCategory.replace(/_/g, ' ')} on duty`,
+                lastUpdated: new Date(),
+                updatedByUserId: userId,
+                dataProvenance: 'MANUAL',
               },
             });
           }
@@ -108,13 +143,16 @@ export const updateHospitalResources = async (
       // 3. Update Ambulances
       if (ambulances) {
         for (const amb of ambulances) {
-          if (amb.id && amb.status) {
+          if (amb.id) {
             await tx.ambulanceAvailability.update({
               where: { id: amb.id },
               data: {
                 status: amb.status,
+                registrationPlate: amb.registrationPlate,
+                currentLocation: amb.currentLocation,
                 lastUpdated: new Date(),
                 updatedByUserId: userId,
+                dataProvenance: 'MANUAL',
               },
             });
           } else if (amb.availableReadyCount !== undefined) {
@@ -128,9 +166,10 @@ export const updateHospitalResources = async (
               await tx.ambulanceAvailability.update({
                 where: { id: existing[i].id },
                 data: {
-                  status: shouldBeReady ? 'AVAILABLE_READY' : 'DISPATCHED_IN_TRANSIT',
+                  status: shouldBeReady ? 'AVAILABLE' : 'ASSIGNED',
                   lastUpdated: new Date(),
                   updatedByUserId: userId,
+                  dataProvenance: 'MANUAL',
                 },
               });
             }
@@ -142,9 +181,11 @@ export const updateHospitalResources = async (
                   data: {
                     hospitalId,
                     ambulanceType: amb.ambulanceType,
-                    status: 'AVAILABLE_READY',
+                    status: 'AVAILABLE',
                     registrationPlate: `KA-01-EA-${200 + existing.length + j + 1}`,
+                    currentLocation: 'Hospital Base Station',
                     updatedByUserId: userId,
+                    dataProvenance: 'MANUAL',
                   },
                 });
               }
@@ -153,11 +194,12 @@ export const updateHospitalResources = async (
         }
       }
 
-      // 4. Update Hospital lastResourceUpdate timestamp
+      // 4. Update Hospital lastResourceUpdate timestamp and data provenance
       await tx.hospital.update({
         where: { id: hospitalId },
         data: {
           lastResourceUpdate: new Date(),
+          dataProvenance: 'MANUAL',
         },
       });
 
@@ -181,6 +223,11 @@ export const updateHospitalResources = async (
       hospitalId,
       updatedAt: new Date().toISOString(),
       updatedBy: req.user?.fullName,
+    });
+
+    io.emit('ambulance_status_updated', {
+      hospitalId,
+      updatedAt: new Date().toISOString(),
     });
 
     res.json({

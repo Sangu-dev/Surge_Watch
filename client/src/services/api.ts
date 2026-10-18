@@ -173,3 +173,92 @@ export async function fetchPlatformFreshness(token: string) {
   }
 }
 
+export async function fetchAmbulances() {
+  try {
+    const res = await fetch(`${API_BASE}/ambulances`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    return data;
+  } catch (err) {
+    console.warn('[API Client] Failed to fetch ambulances:', err);
+    return null;
+  }
+}
+
+export async function fetchHospitalAmbulances(hospitalId: string) {
+  try {
+    const res = await fetch(`${API_BASE}/hospitals/${hospitalId}/ambulances`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    return data;
+  } catch (err) {
+    console.warn('[API Client] Failed to fetch hospital ambulances:', err);
+    return null;
+  }
+}
+
+export async function updateAmbulanceStatus(
+  ambulanceId: string,
+  payload: {
+    status?: string;
+    currentLocation?: string;
+    dispatchNotes?: string;
+  }
+) {
+  const res = await fetch(`${API_BASE}/admin/ambulances/${ambulanceId}/status`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to update ambulance status');
+  return data;
+}
+
+export async function dispatchEmergencyAmbulance(payload: {
+  hospitalId?: string;
+  patientName?: string;
+  contactPhone?: string;
+  emergencyType: string;
+  severity: string;
+  latitude: number;
+  longitude: number;
+  pickupAddress?: string;
+  dispatchNotes?: string;
+}) {
+  const res = await fetch(`${API_BASE}/emergency/dispatch`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to dispatch emergency ambulance');
+  return data;
+}
+
+export async function releaseEmergencyAmbulance(emergencyId: string) {
+  const res = await fetch(`${API_BASE}/emergency/${emergencyId}/release`, {
+    method: 'POST',
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to release emergency ambulance');
+  return data;
+}
+
+export async function fetchEmergencyRequests() {
+  try {
+    const res = await fetch(`${API_BASE}/emergency/requests`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    return data.data;
+  } catch (err) {
+    console.warn('[API Client] Failed to fetch emergency requests:', err);
+    return [];
+  }
+}
+
+

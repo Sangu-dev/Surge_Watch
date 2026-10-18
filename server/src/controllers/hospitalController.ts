@@ -1,110 +1,9 @@
 import { Request, Response } from 'express';
 import { prisma } from '../prisma.js';
-import { calculateHaversineDistance, estimateEmergencyTravelTime } from '../utils/spatial.js';
-import { computeDataFreshness } from '../utils/freshness.js';
-import { discoverNearbyHospitals, NormalizedHospital } from '../services/osmHospitalService.js';
+import { discoverNearbyHospitals, generateOsmDemoResources } from '../services/osmHospitalService.js';
+import { formatHospitalPayload } from '../utils/formatHospital.js';
 
-const BED_LABELS: Record<string, string> = {
-  EMERGENCY_ICU: 'Emergency ICU Beds',
-  TRAUMA_RESUSCITATION: 'Trauma Resuscitation Bays',
-  EMERGENCY_GENERAL: 'General Emergency Beds',
-  OXYGEN_CRITICAL: 'High-Flow Oxygen Beds',
-  PEDIATRIC_EMERGENCY: 'Pediatric Emergency Beds',
-};
-
-const STAFF_LABELS: Record<string, string> = {
-  EMERGENCY_PHYSICIAN: 'Emergency Physicians',
-  TRAUMA_SURGEON: 'Trauma Surgeons',
-  ANESTHESIOLOGIST: 'Anesthesiologists',
-  ICU_TRIAGE_NURSE: 'ICU Triage Nurses',
-  DUTY_MEDICAL_OFFICER: 'Duty Medical Officers',
-};
-
-const AMBULANCE_LABELS: Record<string, string> = {
-  ADVANCED_LIFE_SUPPORT_ALS: 'ALS Ambulance (Advanced Life Support)',
-  BASIC_LIFE_SUPPORT_BLS: 'BLS Ambulance (Basic Life Support)',
-  MOBILE_ICU: 'Mobile ICU Unit',
-  NEONATAL_AMBULANCE: 'Neonatal Care Ambulance',
-};
-
-function formatHospitalPayload(hosp: any, lat?: number, lng?: number): NormalizedHospital {
-  let distanceKm = 0;
-  let estimatedTravelTimeMins = 0;
-
-  if (lat !== undefined && lng !== undefined) {
-    distanceKm = calculateHaversineDistance(lat, lng, hosp.latitude, hosp.longitude);
-    estimatedTravelTimeMins = estimateEmergencyTravelTime(distanceKm);
-  }
-
-  const freshness = computeDataFreshness(hosp.lastResourceUpdate);
-
-  let parsedServices: string[] = [];
-  try {
-    parsedServices = typeof hosp.emergencyServices === 'string'
-      ? JSON.parse(hosp.emergencyServices)
-      : hosp.emergencyServices;
-  } catch {
-    parsedServices = [hosp.emergencyServices];
-  }
-
-  // Format beds with friendly labels
-  const formattedBeds = (hosp.beds || []).map((b: any) => ({
-    ...b,
-    categoryLabel: BED_LABELS[b.category] || b.category.replace(/_/g, ' '),
-  }));
-
-  // Format staff with friendly labels
-  const formattedStaff = (hosp.staff || []).map((s: any) => ({
-    ...s,
-    label: STAFF_LABELS[s.staffCategory] || s.staffCategory.replace(/_/g, ' '),
-  }));
-
-  // Aggregate ambulances by type for UI consumption
-  const ambulanceTypes = ['ADVANCED_LIFE_SUPPORT_ALS', 'BASIC_LIFE_SUPPORT_BLS', 'MOBILE_ICU', 'NEONATAL_AMBULANCE'];
-  const formattedAmbulances = ambulanceTypes.map((type) => {
-    const matching = (hosp.ambulances || []).filter((a: any) => a.ambulanceType === type);
-    const availableReadyCount = matching.filter((a: any) => a.status === 'AVAILABLE_READY').length;
-    const inTransitCount = matching.filter((a: any) => a.status === 'DISPATCHED_IN_TRANSIT').length;
-    return {
-      ambulanceType: type,
-      label: AMBULANCE_LABELS[type] || type,
-      totalCount: matching.length,
-      availableReadyCount,
-      inTransitCount,
-    };
-  }).filter((a) => a.totalCount > 0);
-
-  return {
-    id: hosp.id,
-    name: hosp.name,
-    slug: hosp.slug,
-    address: hosp.address,
-    area: hosp.area,
-    city: hosp.city,
-    state: hosp.state,
-    pincode: hosp.pincode,
-    latitude: hosp.latitude,
-    longitude: hosp.longitude,
-    emergencyContactPhone: hosp.emergencyContactPhone,
-    secondaryContactPhone: hosp.secondaryContactPhone,
-    officialEmail: hosp.officialEmail,
-    websiteUrl: hosp.websiteUrl,
-    emergencyServices: parsedServices,
-    verificationStatus: hosp.verificationStatus,
-    operatingStatus: hosp.operatingStatus,
-    isDemoData: hosp.isDemoData,
-    dataSource: hosp.isDemoData ? 'demo' : 'local_registry',
-    capacityConnected: true,
-    capacityNotes: 'Live triage capacity feed connected.',
-    lastResourceUpdate: hosp.lastResourceUpdate instanceof Date ? hosp.lastResourceUpdate.toISOString() : hosp.lastResourceUpdate,
-    distanceKm,
-    estimatedTravelTimeMins,
-    freshness,
-    beds: formattedBeds,
-    staff: formattedStaff,
-    ambulances: formattedAmbulances,
-  };
-}
+export { formatHospitalPayload } from '../utils/formatHospital.js';
 
 /**
  * Dedicated Real Hospital Discovery Endpoint
@@ -186,6 +85,16 @@ export const searchHospitals = async (req: Request, res: Response): Promise<void
           const icu = hosp.beds.find((b: any) => b.category === 'EMERGENCY_ICU');
           return (icu?.availableBeds ?? 0) > 0;
         }
+        if (serviceFilter === 'ER') {
+          const er = hosp.beds.find((b: any) => b.category === 'EMERGENCY_GENERAL' || b.category === 'TRAUMA_RESUSCITATION');
+          return (er?.availableBeds ?? 0) > 0;
+        }
+        if (serviceFilter === 'DOCTORS') {
+          return (hosp.staffSummary?.doctorsAvailable ?? 0) > 0;
+        }
+        if (serviceFilter === 'NURSES') {
+          return (hosp.staffSummary?.nursesAvailable ?? 0) > 0;
+        }
         if (serviceFilter === 'TRAUMA') {
           return hosp.emergencyServices.some((s: string) => s.toLowerCase().includes('trauma'));
         }
@@ -259,9 +168,39 @@ export const getHospitalById = async (req: Request, res: Response): Promise<void
       return;
     }
 
-    // If ID is an OpenStreetMap ID or synthetic registry ID
-    // Look up via discovery service
-    res.status(404).json({ success: false, error: 'Hospital not found in local registry.' });
+    // Support OSM or dynamic simulated IDs so facility profiles always return full resources
+    const demoRes = generateOsmDemoResources(id, id);
+    const fallbackHospital = {
+      id,
+      name: id.replace(/^osm-[a-z]+-/, '').replace(/^reg-/, '').replace(/-/g, ' ').toUpperCase(),
+      slug: id.toLowerCase(),
+      address: 'Bengaluru, Karnataka',
+      area: 'Bengaluru Urban',
+      city: 'Bengaluru',
+      state: 'Karnataka',
+      facilityType: 'Hospital',
+      emergencyServices: ['24/7 Emergency Casualty', 'Trauma Resuscitation Bays', 'Critical Care ICU'],
+      verificationStatus: 'VERIFIED_LOCATION_ONLY',
+      operatingStatus: 'OPERATIONAL',
+      isDemoData: true,
+      dataSource: 'osm',
+      dataProvenance: 'DEMO',
+      provenanceNotice: 'Demonstration synthetic resource simulation. Provided for prototype evaluation — call facility directly to confirm.',
+      capacityConnected: true,
+      lastResourceUpdate: new Date().toISOString(),
+      beds: demoRes.beds,
+      staff: demoRes.staff,
+      ambulances: demoRes.ambulances,
+      ambulanceFleet: demoRes.ambulanceFleet,
+      bedsSummary: demoRes.bedsSummary,
+      staffSummary: demoRes.staffSummary,
+      ambulanceSummary: demoRes.ambulanceSummary,
+    };
+
+    res.json({
+      success: true,
+      data: fallbackHospital,
+    });
   } catch (error) {
     console.error('Get hospital error:', error);
     res.status(500).json({ success: false, error: 'Failed to retrieve hospital details.' });

@@ -41,7 +41,9 @@ dev.db
 *.db-wal
 server/prisma/dev.db
 server/prisma/*.db
+server/prisma/*.bak
 server/dev.db
+*.bak
 
 # ------------------------------------------------------------------------------
 # 3. Dependencies

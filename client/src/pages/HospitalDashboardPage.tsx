@@ -1,9 +1,9 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import type { FC } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { MOCK_HOSPITALS } from '../data/mockHospitals';
-import type { Hospital, BedBreakdown, StaffBreakdown, AmbulanceInfo } from '../types';
+import type { Hospital, BedBreakdown, StaffBreakdown, AmbulanceInfo, AmbulanceRecord } from '../types';
 import {
   Building,
   Bed,
@@ -15,10 +15,19 @@ import {
   History,
   CheckCircle2,
   AlertCircle,
-  Database
+  Database,
+  RefreshCw,
+  Activity
 } from 'lucide-react';
 import { FreshnessIndicator } from '../components/FreshnessIndicator';
-import { publishHospitalResources, fetchHospitalAuditLogs, fetchHospitalDetails } from '../services/api';
+import {
+  publishHospitalResources,
+  fetchHospitalAuditLogs,
+  fetchHospitalDetails,
+  fetchHospitalAmbulances,
+  updateAmbulanceStatus
+} from '../services/api';
+import { getSocket } from '../services/socket';
 
 export const HospitalDashboardPage: FC = () => {
   const { user, logout } = useAuth();
@@ -34,12 +43,14 @@ export const HospitalDashboardPage: FC = () => {
   const [beds, setBeds] = useState<BedBreakdown[]>(baseHospital.beds);
   const [staff, setStaff] = useState<StaffBreakdown[]>(baseHospital.staff);
   const [ambulances, setAmbulances] = useState<AmbulanceInfo[]>(baseHospital.ambulances);
+  const [ambulanceFleet, setAmbulanceFleet] = useState<AmbulanceRecord[]>([]);
   const [lastPublished, setLastPublished] = useState<string>(baseHospital.lastResourceUpdate);
   const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [confirmPublishOpen, setConfirmPublishOpen] = useState(false);
   const [loadingBackend, setLoadingBackend] = useState<boolean>(false);
   const [isLiveConnected, setIsLiveConnected] = useState<boolean>(false);
+  const [dataProvenance, setDataProvenance] = useState<string>(baseHospital.dataProvenance || 'DEMO');
 
   // In-memory audit trail initialized with defaults, populated from live database
   const [auditLogs, setAuditLogs] = useState<Array<{
@@ -57,46 +68,84 @@ export const HospitalDashboardPage: FC = () => {
   ]);
 
   // Load live data and audit trail from SQLite database on mount
-  useEffect(() => {
-    let isMounted = true;
-    async function loadLiveData() {
-      if (!user?.hospitalId) return;
-      setLoadingBackend(true);
+  const loadLiveData = useCallback(async () => {
+    if (!user?.hospitalId) return;
+    setLoadingBackend(true);
+    try {
+      const details = await fetchHospitalDetails(user.hospitalId);
+      if (details) {
+        setIsLiveConnected(true);
+        if (details.beds && details.beds.length > 0) setBeds(details.beds);
+        if (details.staff && details.staff.length > 0) setStaff(details.staff);
+        if (details.ambulances && details.ambulances.length > 0) setAmbulances(details.ambulances);
+        if (details.lastResourceUpdate) setLastPublished(details.lastResourceUpdate);
+        if (details.dataProvenance) setDataProvenance(details.dataProvenance);
+      }
+    } catch (err) {
+      console.warn('Failed to load initial live hospital data:', err);
+    }
+
+    try {
+      const ambData = await fetchHospitalAmbulances(user.hospitalId);
+      if (ambData && ambData.data && Array.isArray(ambData.data)) {
+        setAmbulanceFleet(ambData.data);
+      }
+    } catch (err) {
+      console.warn('Failed to load live hospital ambulances:', err);
+    }
+
+    if (user?.token) {
       try {
-        const details = await fetchHospitalDetails(user.hospitalId);
-        if (isMounted && details) {
-          setIsLiveConnected(true);
-          if (details.beds && details.beds.length > 0) setBeds(details.beds);
-          if (details.staff && details.staff.length > 0) setStaff(details.staff);
-          if (details.ambulances && details.ambulances.length > 0) setAmbulances(details.ambulances);
-          if (details.lastResourceUpdate) setLastPublished(details.lastResourceUpdate);
+        const logs = await fetchHospitalAuditLogs(user.hospitalId, user.token);
+        if (logs && Array.isArray(logs) && logs.length > 0) {
+          setAuditLogs(
+            logs.map((a: any) => ({
+              id: a.id,
+              timestamp: a.timestamp,
+              author: a.user?.fullName || user.fullName,
+              summary: a.changeSummary,
+            }))
+          );
         }
       } catch (err) {
-        console.warn('Failed to load initial live hospital data:', err);
+        console.warn('Failed to load live audit logs:', err);
       }
-
-      if (user?.token) {
-        try {
-          const logs = await fetchHospitalAuditLogs(user.hospitalId, user.token);
-          if (isMounted && logs && Array.isArray(logs) && logs.length > 0) {
-            setAuditLogs(
-              logs.map((a: any) => ({
-                id: a.id,
-                timestamp: a.timestamp,
-                author: a.user?.fullName || user.fullName,
-                summary: a.changeSummary,
-              }))
-            );
-          }
-        } catch (err) {
-          console.warn('Failed to load live audit logs:', err);
-        }
-      }
-      if (isMounted) setLoadingBackend(false);
     }
-    loadLiveData();
-    return () => { isMounted = false; };
+    setLoadingBackend(false);
   }, [user?.hospitalId, user?.token, user?.fullName]);
+
+  useEffect(() => {
+    loadLiveData();
+  }, [loadLiveData]);
+
+  // Real-time Socket.IO listener for live updates
+  useEffect(() => {
+    const socket = getSocket();
+
+    const handleHospitalUpdate = (event: { hospitalId: string }) => {
+      if (event.hospitalId === user?.hospitalId) {
+        loadLiveData();
+      }
+    };
+
+    const handleAmbulanceUpdate = (event: { hospitalId: string }) => {
+      if (event.hospitalId === user?.hospitalId) {
+        loadLiveData();
+      }
+    };
+
+    socket.on('hospital_resource_updated', handleHospitalUpdate);
+    socket.on('ambulance_status_updated', handleAmbulanceUpdate);
+    socket.on('emergency_dispatched', handleAmbulanceUpdate);
+    socket.on('emergency_resolved', handleAmbulanceUpdate);
+
+    return () => {
+      socket.off('hospital_resource_updated', handleHospitalUpdate);
+      socket.off('ambulance_status_updated', handleAmbulanceUpdate);
+      socket.off('emergency_dispatched', handleAmbulanceUpdate);
+      socket.off('emergency_resolved', handleAmbulanceUpdate);
+    };
+  }, [user?.hospitalId, loadLiveData]);
 
   // Handle bed count changes with mathematical integrity validation
   const handleBedChange = (index: number, field: 'totalBeds' | 'occupiedBeds' | 'availableBeds', value: number) => {
@@ -114,23 +163,32 @@ export const HospitalDashboardPage: FC = () => {
       item.availableBeds = Math.max(0, item.totalBeds - item.occupiedBeds);
     } else {
       item.availableBeds = numericVal;
+      item.occupiedBeds = Math.max(0, item.totalBeds - item.availableBeds);
     }
 
     updated[index] = item;
     setBeds(updated);
   };
 
-  // Handle staff change
-  const handleStaffChange = (index: number, field: 'scheduledOnDutyCount' | 'currentlyAvailableCount', value: number) => {
+  // Handle staff count and shift status change
+  const handleStaffChange = (
+    index: number,
+    field: 'scheduledOnDutyCount' | 'currentlyAvailableCount' | 'shiftStatus',
+    value: any
+  ) => {
     setValidationError(null);
     const updated = [...staff];
     const item = { ...updated[index] };
-    item[field] = Math.max(0, isNaN(value) ? 0 : value);
+    if (field === 'shiftStatus') {
+      item.shiftStatus = value;
+    } else {
+      item[field] = Math.max(0, isNaN(value) ? 0 : value);
+    }
     updated[index] = item;
     setStaff(updated);
   };
 
-  // Handle ambulance change
+  // Handle ambulance aggregate change
   const handleAmbulanceChange = (index: number, field: 'availableReadyCount' | 'inTransitCount', value: number) => {
     setValidationError(null);
     const updated = [...ambulances];
@@ -140,11 +198,23 @@ export const HospitalDashboardPage: FC = () => {
     setAmbulances(updated);
   };
 
+  // Handle individual vehicle status change
+  const handleVehicleStatusChange = async (ambulanceId: string, newStatus: string) => {
+    try {
+      await updateAmbulanceStatus(ambulanceId, { status: newStatus });
+      setSaveSuccessMessage(`Ambulance status updated to ${newStatus}.`);
+      loadLiveData();
+      setTimeout(() => setSaveSuccessMessage(null), 4000);
+    } catch (e: any) {
+      setValidationError(`Failed to update vehicle status: ${e.message}`);
+    }
+  };
+
   // Validate before publishing
   const validateForm = (): boolean => {
     for (const b of beds) {
       if (b.availableBeds + b.occupiedBeds > b.totalBeds) {
-        setValidationError(`Invalid bed calculation for ${b.categoryLabel}: Available + Occupied cannot exceed Total Licensed Beds (${b.totalBeds}).`);
+        setValidationError(`Invalid bed calculation for ${b.categoryLabel}: Available (${b.availableBeds}) + Occupied (${b.occupiedBeds}) cannot exceed Total Licensed Beds (${b.totalBeds}).`);
         return false;
       }
     }
@@ -162,8 +232,9 @@ export const HospitalDashboardPage: FC = () => {
 
     const icuAvail = beds.find((b) => b.category === 'EMERGENCY_ICU')?.availableBeds ?? 0;
     const docReady = staff.find((s) => s.staffCategory === 'EMERGENCY_PHYSICIAN')?.currentlyAvailableCount ?? 0;
+    const nurseReady = staff.find((s) => s.staffCategory === 'EMERGENCY_NURSE' || s.staffCategory === 'ICU_TRIAGE_NURSE')?.currentlyAvailableCount ?? 0;
     const readyAmbulances = ambulances.reduce((acc, a) => acc + (a.availableReadyCount ?? 0), 0);
-    const summaryText = `Published capacity update: ${icuAvail} ICU beds available, ${docReady} triage physicians on-duty, ${readyAmbulances} ready ambulances.`;
+    const summaryText = `Published capacity update: ${icuAvail} ICU beds available, ${docReady} triage physicians on-duty, ${nurseReady} nurses on-duty, ${readyAmbulances} ready ambulances.`;
 
     if (user?.token && user.hospitalId) {
       try {
@@ -173,18 +244,9 @@ export const HospitalDashboardPage: FC = () => {
           ambulances,
           changeSummary: summaryText,
         });
-        const remoteAudits = await fetchHospitalAuditLogs(user.hospitalId, user.token);
-        if (remoteAudits && Array.isArray(remoteAudits)) {
-          setAuditLogs(
-            remoteAudits.map((a: any) => ({
-              id: a.id,
-              timestamp: a.timestamp,
-              author: a.user?.fullName || user.fullName,
-              summary: a.changeSummary,
-            }))
-          );
-        }
+        setDataProvenance('MANUAL');
         setIsLiveConnected(true);
+        loadLiveData();
       } catch (e: any) {
         console.warn('Backend update sync note:', e.message);
       }
@@ -218,12 +280,22 @@ export const HospitalDashboardPage: FC = () => {
               <Building className="w-5 h-5 text-sky-400" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-lg sm:text-xl font-bold tracking-tight text-white leading-tight">
                   {user?.hospitalName || baseHospital.name}
                 </h1>
                 <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-emerald-950 text-emerald-300 border border-emerald-800">
                   KPME Verified
+                </span>
+                <span
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                    dataProvenance === 'MANUAL'
+                      ? 'bg-blue-950 text-blue-300 border border-blue-800'
+                      : 'bg-purple-950 text-purple-300 border border-purple-800'
+                  }`}
+                >
+                  <Activity className="w-3 h-3" />
+                  <span>{dataProvenance === 'MANUAL' ? 'MANUAL ENTRY' : 'DEMO SYNTHETIC'}</span>
                 </span>
                 <span
                   className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
@@ -273,7 +345,7 @@ export const HospitalDashboardPage: FC = () => {
                 <span>•</span>
                 <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  {isLiveConnected ? 'Connected to SQLite' : 'Offline Buffer'}
+                  {isLiveConnected ? 'Connected to SQLite Database' : 'Offline Buffer'}
                 </span>
               </div>
             </div>
@@ -288,7 +360,7 @@ export const HospitalDashboardPage: FC = () => {
               className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-sm transition-all cursor-pointer"
             >
               <Send className="w-4 h-4" />
-              <span>Publish Live Updates</span>
+              <span>Publish Live Capacity</span>
             </button>
           </div>
         </div>
@@ -315,11 +387,18 @@ export const HospitalDashboardPage: FC = () => {
               <div className="w-8 h-8 rounded-lg bg-sky-100 text-sky-700 flex items-center justify-center">
                 <Bed className="w-4 h-4" />
               </div>
-              <h2 className="text-base sm:text-lg font-bold text-slate-900">
-                Emergency Bed Availability Management
-              </h2>
+              <div>
+                <h2 className="text-base sm:text-lg font-bold text-slate-900">
+                  Hospital Bed Availability Management
+                </h2>
+                <p className="text-xs text-slate-500">
+                  Maintain ICU, Trauma, Emergency, and Critical Observation bed counts with mathematical integrity.
+                </p>
+              </div>
             </div>
-            <span className="text-xs text-slate-500">Live Intake Counters</span>
+            <span className="text-xs font-semibold text-slate-500">
+              Total Licensed: <strong className="text-slate-800">{beds.reduce((acc, b) => acc + (b.totalBeds || 0), 0)}</strong>
+            </span>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -328,7 +407,7 @@ export const HospitalDashboardPage: FC = () => {
                 <div className="flex justify-between items-center">
                   <h3 className="font-bold text-sm text-slate-800">{bed.categoryLabel}</h3>
                   <span className="text-xs font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
-                    {bed.availableBeds} Ready
+                    {bed.availableBeds} Available
                   </span>
                 </div>
 
@@ -376,9 +455,14 @@ export const HospitalDashboardPage: FC = () => {
               <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center">
                 <UserCheck className="w-4 h-4" />
               </div>
-              <h2 className="text-base sm:text-lg font-bold text-slate-900">
-                Doctor & Medical Staff Availability Metrics
-              </h2>
+              <div>
+                <h2 className="text-base sm:text-lg font-bold text-slate-900">
+                  Doctor & Medical Staff Availability & Shifts
+                </h2>
+                <p className="text-xs text-slate-500">
+                  Update on-duty physicians, emergency triage nurses, and active shift rosters.
+                </p>
+              </div>
             </div>
             <span className="text-xs text-slate-500">Casualty & Triage Readiness</span>
           </div>
@@ -387,7 +471,19 @@ export const HospitalDashboardPage: FC = () => {
             {staff.map((s, idx) => (
               <div key={idx} className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="space-y-1 max-w-md">
-                  <h3 className="font-bold text-sm text-slate-800">{s.label}</h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-bold text-sm text-slate-800">{s.label}</h3>
+                    <select
+                      value={s.shiftStatus || 'DAY_SHIFT'}
+                      onChange={(e) => handleStaffChange(idx, 'shiftStatus', e.target.value)}
+                      className="text-[11px] font-bold bg-white border border-slate-300 rounded px-2 py-0.5 text-slate-700 cursor-pointer"
+                    >
+                      <option value="DAY_SHIFT">DAY SHIFT (08:00 - 20:00)</option>
+                      <option value="NIGHT_SHIFT">NIGHT SHIFT (20:00 - 08:00)</option>
+                      <option value="ON_DUTY">ON DUTY / CASUALTY</option>
+                      <option value="ON_CALL">ON CALL / STANDBY</option>
+                    </select>
+                  </div>
                   <p className="text-xs text-slate-500 italic">
                     Metric: {s.metricDefinition}
                   </p>
@@ -420,27 +516,107 @@ export const HospitalDashboardPage: FC = () => {
           </div>
         </section>
 
-        {/* 3. Ambulance Readiness Fleet Section */}
+        {/* 3. Ambulance Fleet & Vehicle Tracking Section */}
         <section className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs space-y-4">
           <div className="flex items-center justify-between border-b border-slate-100 pb-3">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center">
                 <Truck className="w-4 h-4" />
               </div>
-              <h2 className="text-base sm:text-lg font-bold text-slate-900">
-                Ambulance Operational Readiness Fleet
-              </h2>
+              <div>
+                <h2 className="text-base sm:text-lg font-bold text-slate-900">
+                  Ambulance Fleet Status & Individual Vehicle Dispatch
+                </h2>
+                <p className="text-xs text-slate-500">
+                  Real-time status transitions: AVAILABLE, ASSIGNED, EN_ROUTE, AT_SCENE, COMPLETED.
+                </p>
+              </div>
             </div>
-            <span className="text-xs text-slate-500">Station vs In-Transit</span>
+            <button
+              type="button"
+              onClick={loadLiveData}
+              className="inline-flex items-center gap-1 px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Refresh Fleet</span>
+            </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Individual Vehicle Table */}
+          {ambulanceFleet.length > 0 ? (
+            <div className="overflow-x-auto rounded-xl border border-slate-200">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
+                  <tr>
+                    <th className="p-3">Vehicle Plate</th>
+                    <th className="p-3">Ambulance Type</th>
+                    <th className="p-3">Status</th>
+                    <th className="p-3">Current Location</th>
+                    <th className="p-3">Last Updated</th>
+                    <th className="p-3 text-right">Quick Transition</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 bg-white">
+                  {ambulanceFleet.map((vehicle) => (
+                    <tr key={vehicle.id} className="hover:bg-slate-50/80 transition-colors">
+                      <td className="p-3 font-mono font-bold text-slate-900">
+                        {vehicle.registrationPlate}
+                      </td>
+                      <td className="p-3 font-medium text-slate-700">
+                        {vehicle.typeLabel || vehicle.ambulanceType}
+                      </td>
+                      <td className="p-3">
+                        <span
+                          className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                            vehicle.status === 'AVAILABLE' || vehicle.status === 'AVAILABLE_READY'
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                              : vehicle.status === 'ASSIGNED' || vehicle.status === 'EN_ROUTE'
+                              ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                              : 'bg-slate-100 text-slate-700 border border-slate-200'
+                          }`}
+                        >
+                          {vehicle.status}
+                        </span>
+                      </td>
+                      <td className="p-3 text-slate-600 font-medium">
+                        {vehicle.currentLocation || 'Hospital Station Base'}
+                      </td>
+                      <td className="p-3 text-slate-400 text-[11px]">
+                        {vehicle.lastUpdated ? new Date(vehicle.lastUpdated).toLocaleTimeString() : 'N/A'}
+                      </td>
+                      <td className="p-3 text-right">
+                        <select
+                          value={vehicle.status}
+                          onChange={(e) => handleVehicleStatusChange(vehicle.id, e.target.value)}
+                          className="bg-white border border-slate-300 rounded px-2 py-1 font-semibold text-slate-800 text-[11px] cursor-pointer"
+                        >
+                          <option value="AVAILABLE">AVAILABLE (At Station)</option>
+                          <option value="ASSIGNED">ASSIGNED (Call Allocated)</option>
+                          <option value="EN_ROUTE">EN_ROUTE (Transit to Patient)</option>
+                          <option value="AT_SCENE">AT_SCENE (At Casualty Spot)</option>
+                          <option value="COMPLETED">COMPLETED (Released)</option>
+                          <option value="MAINTENANCE">MAINTENANCE</option>
+                        </select>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="bg-slate-50 border border-dashed border-slate-200 rounded-xl p-4 text-center text-xs text-slate-500">
+              No individual ambulance vehicles registered in fleet table.
+            </div>
+          )}
+
+          {/* Aggregate Overview */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
             {ambulances.map((amb, idx) => (
               <div key={idx} className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
                 <h3 className="font-bold text-sm text-slate-800">{amb.label}</h3>
                 <div className="grid grid-cols-2 gap-3 text-xs">
                   <div>
-                    <label className="block text-[11px] font-semibold text-emerald-700 mb-1">Available at Station</label>
+                    <label className="block text-[11px] font-semibold text-emerald-700 mb-1">Available Ready Count</label>
                     <input
                       type="number"
                       min={0}
@@ -450,7 +626,7 @@ export const HospitalDashboardPage: FC = () => {
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-500 mb-1">Currently In Transit</label>
+                    <label className="block text-[11px] font-semibold text-slate-500 mb-1">In Transit / Assigned</label>
                     <input
                       type="number"
                       min={0}
@@ -465,81 +641,72 @@ export const HospitalDashboardPage: FC = () => {
           </div>
         </section>
 
-        {/* 4. Audit Trail & Update History Section */}
+        {/* 4. Immutable Audit Trail History */}
         <section className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center">
-                <History className="w-4 h-4" />
-              </div>
-              <h2 className="text-base sm:text-lg font-bold text-slate-900">
-                Administrative Audit Trail & Change Log
-              </h2>
+          <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
+            <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-700 flex items-center justify-center">
+              <History className="w-4 h-4" />
             </div>
-            <span className="text-xs text-slate-500">Immutable Compliance Record</span>
+            <div>
+              <h2 className="text-base sm:text-lg font-bold text-slate-900">
+                Regulatory Capacity Audit Trail Log
+              </h2>
+              <p className="text-xs text-slate-500">
+                Immutable chronological log of all published bed, staffing, and ambulance fleet modifications.
+              </p>
+            </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider font-semibold border-b border-slate-200">
-                <tr>
-                  <th className="p-3">Timestamp (UTC/IST)</th>
-                  <th className="p-3">Authorized Medical Officer</th>
-                  <th className="p-3">Action / Summary</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {auditLogs.map((log) => (
-                  <tr key={log.id} className="hover:bg-slate-50">
-                    <td className="p-3 text-slate-500 font-mono whitespace-nowrap">
-                      {new Date(log.timestamp).toLocaleString()}
-                    </td>
-                    <td className="p-3 font-semibold text-slate-800 whitespace-nowrap">
-                      {log.author}
-                    </td>
-                    <td className="p-3 text-slate-600">
-                      {log.summary}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="space-y-2">
+            {auditLogs.map((log) => (
+              <div key={log.id} className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 flex items-start justify-between gap-4 text-xs">
+                <div className="space-y-1">
+                  <p className="font-semibold text-slate-800">{log.summary}</p>
+                  <p className="text-[11px] text-slate-400">
+                    Committed by <strong className="text-slate-600">{log.author}</strong>
+                  </p>
+                </div>
+                <div className="text-right text-[11px] text-slate-500 flex-shrink-0">
+                  <span>{new Date(log.timestamp).toLocaleString()}</span>
+                </div>
+              </div>
+            ))}
           </div>
         </section>
       </main>
 
-      {/* Confirmation Modal before Publishing */}
+      {/* Confirmation Modal */}
       {confirmPublishOpen && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 border border-slate-200 shadow-2xl space-y-4">
-            <div className="w-12 h-12 rounded-xl bg-emerald-100 text-emerald-700 mx-auto flex items-center justify-center">
-              <Send className="w-6 h-6" />
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                <Send className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-lg text-slate-900">Confirm Capacity Broadcast</h3>
+                <p className="text-xs text-slate-500">Publish immediately to live SurgeWatch network</p>
+              </div>
             </div>
-            <div className="text-center space-y-2">
-              <h3 className="text-lg font-bold text-slate-900">Confirm Live Broadcast</h3>
-              <p className="text-xs text-slate-600 leading-relaxed">
-                You are about to publish these updated resource counts to the live SurgeWatch emergency network. Emergency responders and patients will immediately see these numbers.
-              </p>
-            </div>
-            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-700 space-y-1">
-              <div><strong>Hospital:</strong> {user?.hospitalName || baseHospital.name}</div>
-              <div><strong>Auditor:</strong> {user?.fullName}</div>
-              <div><strong>Verification:</strong> Recorded in immutable compliance audit trail</div>
-            </div>
-            <div className="flex gap-2 pt-2">
+
+            <p className="text-xs text-slate-600 leading-relaxed">
+              You are about to publish updated bed numbers, on-duty doctors, nurses, and ambulance fleet status. This action will commit an immutable regulatory audit log and trigger real-time Socket.IO broadcasts to all connected emergency clients.
+            </p>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
               <button
                 type="button"
                 onClick={() => setConfirmPublishOpen(false)}
-                className="flex-1 py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold"
+                className="px-4 py-2 border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-semibold cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={handleConfirmPublish}
-                className="flex-1 py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm"
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer"
               >
-                Confirm & Broadcast
+                Confirm & Publish
               </button>
             </div>
           </div>
