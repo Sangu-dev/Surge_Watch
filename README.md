@@ -9,30 +9,34 @@
 [![Socket.IO](https://img.shields.io/badge/Socket.IO-4.x-black.svg)](https://socket.io/)
 [![Leaflet](https://img.shields.io/badge/Maps-Leaflet-199900.svg)](https://leafletjs.com/)
 [![OpenStreetMap](https://img.shields.io/badge/Data-OpenStreetMap-7EBC6F.svg)](https://www.openstreetmap.org/)
-[![Tests](https://img.shields.io/badge/Tests-31%2F31%20Passed-brightgreen.svg)](#-automated-testing--verification)
+[![Tests](https://img.shields.io/badge/Tests-43%2F43%20Passed-brightgreen.svg)](#-automated-testing--verification-43-point-suite)
 [![License](https://img.shields.io/badge/License-ISC-blue.svg)](LICENSE)
 
 > **SurgeWatch** is an emergency healthcare discovery and hospital capacity signaling platform engineered for **Bengaluru, Karnataka, India**. During road traffic accidents, acute trauma, or medical emergencies, SurgeWatch acquires user coordinates via GPS or interactive manual placement, queries live OpenStreetMap healthcare nodes, calculates geodesic straight-line distance via the Haversine formula, and displays **all available matching hospitals within strictly selectable 5 km, 10 km, or 15 km radii** without arbitrary record caps — fully synchronized across an interactive Leaflet map and proximity-sorted hospital cards with Google Maps navigation.
+>
+> In addition to geographical discovery, SurgeWatch features real-time **Hospital Bed Availability**, **Medical Staff On-Duty Tracking**, and **Ambulance Fleet Status & Telemetry**, paired with an automated **Emergency Ambulance SOS Dispatch Lifecycle** and deterministic simulation fallbacks that ensure every discovered hospital presents actionable availability metrics.
 
 ---
 
 ## 📑 Table of Contents
-1. [🌟 Updated Core Features & Technical Deep Dive](#-updated-core-features--technical-deep-dive)
+1. [🌟 Core Features & Technical Deep Dive](#-core-features--technical-deep-dive)
    - [1. Real-Time Device GPS & Location Acquisition](#1-🛰️-real-time-device-gps--location-acquisition)
    - [2. 4-Tier Controlled Location Fallback Hierarchy](#2-🛡️-controlled-4-tier-location-fallback-hierarchy)
    - [3. Real Hospital Discovery via OpenStreetMap (Overpass API)](#3-🏥-real-hospital-discovery-via-openstreetmap-overpass-api)
    - [4. High-Availability Mirror Failover & 15-Minute Caching](#4-⚡-high-availability-mirror-failover-architecture)
-   - [5. Strict Radius Filtering: 5 km, 10 km, and 15 km (No 5-Record Limit)](#5-🎯-strict-radius-filtering-5-km-10-km-and-15-km-no-record-cap)
+   - [5. Strict Radius Filtering: 5 km, 10 km, and 15 km (No Record Cap)](#5-🎯-strict-radius-filtering-5-km-10-km-and-15-km-no-record-cap)
    - [6. Geodesic Distance Calculation (Haversine Formula)](#6-📏-accurate-geodesic-distance-calculation-haversine-formula)
    - [7. Synchronized Leaflet Map & Hospital Cards](#7-🗺️-synchronized-leaflet-map--hospital-list)
-   - [8. Data Integrity & Strict Non-Fabrication Standard](#8-🔒-data-integrity--strict-non-fabrication-policy)
-   - [9. Transparent Clinical Capacity Distinction](#9-⚖️-transparent-capacity-distinction)
-   - [10. Live Reverse Geocoding & Offline Spatial Heuristics](#10-🗺️-live-reverse-geocoding--offline-spatial-heuristics)
-   - [11. Hospital Administration & Platform Governance Portals](#11-🔐-hospital-administration--platform-governance-portals)
+   - [8. Hospital Bed Availability Breakdown & Mathematical Consistency](#8-🛏️-hospital-bed-availability-breakdown--mathematical-consistency)
+   - [9. Medical Staff Availability & Clinical Duty Rosters](#9-👨‍⚕️-medical-staff-availability--clinical-duty-rosters)
+   - [10. Ambulance Fleet Status, License Plate Telemetry & Dispatch](#10-🚑-ambulance-fleet-status-license-plate-telemetry--dispatch)
+   - [11. 5-Column Compact Card & 3-Section Modal Architecture](#11-🎴-5-column-compact-card--3-section-modal-architecture)
+   - [12. Deterministic Resource Simulation & Provenance Disclaimers](#12-🧬-deterministic-resource-simulation--provenance-disclaimers)
+   - [13. Hospital Administration & Platform Governance Portals](#13-🔐-hospital-administration--platform-governance-portals)
 2. [🔄 Data Discovery Flow Architecture](#-data-discovery-flow-architecture)
 3. [🏗️ Monorepo Architecture & Directory Structure](#-architecture--monorepo-structure)
 4. [🚀 Quickstart & Setup Guide](#-quickstart--setup-guide)
-5. [🧪 Automated Testing & Verification (31-Point Suite)](#-automated-testing--verification)
+5. [🧪 Automated Testing & Verification (43-Point Feature Suite)](#-automated-testing--verification-43-point-suite)
 6. [📡 REST API Reference & Schemas](#-rest-api-reference)
 7. [🔒 Security, Privacy & Git Best Practices](#-security-privacy--git-best-practices)
 8. [⚠️ Emergency Medical Disclaimer](#-emergency-medical-disclaimer)
@@ -40,7 +44,7 @@
 
 ---
 
-## 🌟 Updated Core Features & Technical Deep Dive
+## 🌟 Core Features & Technical Deep Dive
 
 ### 1. 🛰️ Real-Time Device GPS & Location Acquisition
 - **High-Accuracy Geolocation**: Direct integration with the browser's standard Geolocation API (`navigator.geolocation.getCurrentPosition()`) invoking hardware GPS with high accuracy mode (`enableHighAccuracy: true`, `timeout: 10000`, `maximumAge: 0`).
@@ -127,24 +131,66 @@ To eliminate single points of failure during critical medical emergencies, Surge
 - **Interactive Marker Popups**: Clicking any marker reveals an informative popup containing the hospital name, facility type badge, straight-line distance, genuine contact number, and a direct Google Maps navigation button.
 - **Interactive Highlight Sync**: Hovering or clicking a hospital card highlights the corresponding marker on the map.
 
-### 8. 🔒 Data Integrity & Strict Non-Fabrication Policy
-- **Zero Dummy Contact Numbers**: SurgeWatch strictly forbids injecting placeholder phone numbers (e.g., `+91 80 2345 6789` or simulated helplines).
-- **Authentic OSM Metadata**: Only genuine contact numbers mapped in OpenStreetMap tags (`phone`, `contact:phone`, `emergency:phone`) are shown.
-- **Transparent Absence Disclosure**: If contact details are not available on OSM, the interface explicitly displays *"Contact number not available on OSM"* rather than misleading users in an emergency.
+### 8. 🛏️ Hospital Bed Availability Breakdown & Mathematical Consistency
+- **Mathematical Consistency Verification**: Every hospital maintains strict census invariants:
+  $$\text{Occupied Beds} = \text{Total Licensed Capacity} - \text{Available Beds}$$
+  $$\text{Occupied Beds} \ge 0, \quad \text{Available Beds} \ge 0, \quad \text{Total Beds} > 0$$
+- **Departmental Bed Breakdown**:
+  - **Emergency / ER Ward**: Acute casualty resuscitation bays with dynamic availability meters, ratio badges (e.g. `4 / 18 Available`), and capacity status flags (`✓ Available` vs. `⚠ Full`).
+  - **ICU / Critical Trauma Care**: Level-1 intensive care units equipped for severe polytrauma, cardiac arrest, and multi-organ life support.
+  - **High-Flow Oxygen & Critical Care**: Dedicated oxygenation-equipped beds for acute respiratory distress.
+  - **Pediatric Emergency Bays**: Specialized neonatal and child trauma intake capacity.
+- **Visual Progress Meters**: Proportional progress bars indicate real-time saturation thresholds across critical emergency wards.
 
-### 9. ⚖️ Transparent Capacity Distinction
-- **Geographic Existence $\neq$ Clinical Capacity**:
-  - **OpenStreetMap Facilities**: Verified geographic healthcare facilities mapped by community contributors. Labeled with an explicit transparency notice:
-    > *"Live Bed Availability Not Connected — Mapped geographic facility via OpenStreetMap. Call casualty desk to confirm room & triage readiness."*
-  - **Verified Registry Hospitals**: Institutions connected to SurgeWatch live telemetry, displaying verified real-time ICU beds, trauma resuscitation bays, duty doctors, and ready ALS/BLS ambulances with last-updated timestamps.
-- **Attribution & Coverage Disclaimer**: Transparently credits OpenStreetMap contributors under the Open Database License (ODbL) and discloses that community records may be subject to local variations.
+### 9. 👨‍⚕️ Medical Staff Availability & Clinical Duty Rosters
+- **Real-Time Clinical Headcounts**: Displays exact on-shift physician and trauma nurse counts rather than vague qualitative descriptors:
+  - **Emergency Physicians On-Duty**: Board-certified casualty consultants and triage medical officers on active shift.
+  - **Immediate Triage Availability**: Number of doctors unassigned and immediately available to attend to incoming trauma arrivals.
+  - **ICU & Trauma Nurses On-Duty**: Dedicated acute resuscitation nursing staff.
+- **Granular Shift Duty Rosters**: Full roster breakdown detailing:
+  - Role classification (Emergency Physicians, Trauma Surgeons, Critical Care Anesthesiologists, Triage Nurses).
+  - Shift categorization (`DAY_SHIFT`, `NIGHT_SHIFT`, `ROTATING`).
+  - Exact counts: Scheduled On-Duty vs. Currently Available.
+  - Role metric definition and clinical responsibilities.
 
-### 10. 🗺️ Live Reverse Geocoding & Offline Spatial Heuristics
-- **Nominatim Reverse Geocoding**: Resolves raw GPS coordinates into human-readable street names and neighborhood areas (e.g., *"Mahayogi Vemana Road, Koramangala East, Bengaluru"*).
-- **Offline Bounding Box Heuristics**: If Nominatim is throttled or unreachable, a spatial heuristic resolves coordinates against calibrated bounding boxes for 16 major Bengaluru sectors (Koramangala, Indiranagar, Whitefield, Electronic City, Hebbal, Yelahanka, Peenya, Malleshwaram, Jayanagar, BTM Layout, HSR Layout, Rajajinagar, Banashankari, Marathahalli, Bellandur, Majestic).
+### 10. 🚑 Ambulance Fleet Status, License Plate Telemetry & Dispatch
+- **Karnataka Vehicle Telemetry**: Every tracked ambulance displays its official state registration plate (e.g., `KA-01-EA-108`, `KA-05-MB-412`, `KA-51-EX-904`).
+- **Fleet Capability Categorization**:
+  - **ALS (Advanced Life Support)**: Transport ventilators, multipara cardiac monitors, defibrillators, and emergency airway kits.
+  - **BLS (Basic Life Support)**: Standard emergency stretchers, oxygen cylinders, and basic splinting gear.
+  - **Mobile ICU Units**: High-dependency mobile intensive care ambulances for severe inter-hospital transfer.
+- **Operational Lifecycle Status Tracking**:
+  - `AVAILABLE` (Ready at Station)
+  - `ASSIGNED` (Dispatched to Casualty)
+  - `EN_ROUTE` (In Transit to Scene)
+  - `AT_SCENE` (On Site Administering Triage)
+- **Emergency SOS Ambulance Dispatch Dialog**: One-click dispatch interface permitting incident reporters to submit patient condition (Trauma / Cardiac / Accident), contact phone number, and location notes with live Socket.IO broadcasts (`emergency_dispatched`, `emergency_resolved`).
 
-### 11. 🔐 Hospital Administration & Platform Governance Portals
+### 11. 🎴 5-Column Compact Card & 3-Section Modal Architecture
+- **5-Column Card Resource Summary (Matching Reference Design)**: Every nearby hospital card provides an instant 5-column dashboard:
+  - **Column 1 — BEDS**: `Avail: X / Y`, `Occupied: Z`
+  - **Column 2 — ER BEDS**: `Available (X beds)` / `Full`, `Total ER: Y`
+  - **Column 3 — ICU**: `Available (X beds)` / `Full`, `Total ICU: Y`
+  - **Column 4 — CLINICAL STAFF**: `Docs: X, Nurses: Y`, `DAY_SHIFT`
+  - **Column 5 — AMBULANCES**: `Avail: X`, `Ready for Dispatch`
+- **3-Section Comprehensive Hospital Details Modal**:
+  - `HOSPITAL BED AVAILABILITY`: Capacity overview cards, ER ward progress bar, ICU critical bay card, and sub-category metrics.
+  - `MEDICAL STAFF AVAILABILITY`: Doctor and nurse on-duty status boxes with detailed duty roster breakdown.
+  - `AMBULANCE FLEET STATUS`: Fleet counters and individual vehicle badges showing license plates, operational status, vehicle type, and current location.
+- **One-Click Turn-by-Turn Routing**: Google Maps navigation button (`https://www.google.com/maps/dir/?api=1&destination={lat},{lon}`) and direct casualty calling.
+
+### 12. 🧬 Deterministic Resource Simulation & Provenance Disclaimers
+- **Zero Empty "Unintegrated" Placeholders**: Ensures that unlinked facilities (such as raw OpenStreetMap nodes) never display empty, blank, or broken metrics.
+- **Deterministic String Hashing**: Algorithmic resource simulation derives reproducible, facility-unique capacity numbers from `hash(hospitalName : hospitalId)`:
+  - Sri Swaranaamrutha Hospital, Victoria Hospital, and Manipal Hospital each display distinct, consistent bed and ambulance numbers across page reloads.
+- **Transparent Provenance Badges**:
+  - `VERIFIED CLINICAL TELEMETRY`: Direct hospital API integration.
+  - `MANUAL ADMIN ENTRY`: Verified entry by authenticated medical superintendent.
+  - `DEMO SIMULATION`: Synthetic simulation data with an explicit amber/purple safety disclosure advising users to call casualty triage in life-threatening emergencies.
+
+### 13. 🔐 Hospital Administration & Platform Governance Portals
 - **Hospital Admin Portal**: Authenticated hospital staff and casualty superintendents can atomically update bed capacity, on-duty doctors, and ambulance fleets with cryptographic audit logging.
+- **Real-Time WebSocket Signaling**: Instant Socket.IO broadcasting (`hospital_resource_updated`, `ambulance_status_updated`) pushes live changes to all active search clients without manual refreshing.
 - **Platform Governance**: System administrators can review institutional KPME license access requests, manage platform settings, and monitor system-wide data freshness.
 
 ---
@@ -203,27 +249,29 @@ flowchart TD
 Surge_Watch/
 ├── client/                     # Frontend Application (Vite + React 19 + Tailwind CSS)
 │   ├── src/
-│   │   ├── components/         # HospitalCard, MapPreview, RadiusSelector, LandmarkBar, etc.
+│   │   ├── components/         # HospitalCard, HospitalDetailModal, MapPreview, RadiusSelector, LandmarkBar, etc.
 │   │   ├── context/            # AuthContext (JWT session state)
 │   │   ├── data/               # Bengaluru landmarks & offline fallback records
-│   │   ├── hooks/              # useDeviceLocation, useHospitalSearch
-│   │   ├── pages/              # LandingPage, PatientSearchPage, Admin Dashboards
+│   │   ├── hooks/              # useDeviceLocation, useHospitalSearch (hydrated resource querying)
+│   │   ├── pages/              # LandingPage, PatientSearchPage, HospitalDashboardPage, Admin Portals
 │   │   ├── services/           # api.ts (REST client), socket.ts (Socket.IO client)
-│   │   ├── types/              # TypeScript schemas for Hospital, LocationState, etc.
-│   │   └── utils/              # Haversine distance, travel time, and freshness math
+│   │   ├── types/              # TypeScript schemas for Hospital, BedsSummary, StaffBreakdown, AmbulanceRecord, etc.
+│   │   └── utils/              # dummyResources.ts (deterministic simulation), distance, travel time, and freshness
 │   └── package.json
 │
 ├── server/                     # Backend Application (Node.js + Express 5 + Prisma)
 │   ├── prisma/
-│   │   ├── schema.prisma       # Relational models (User, Hospital, Beds, Staff, etc.)
-│   │   └── seed.ts             # Bengaluru seed data (Victoria, Manipal, St. John's, etc.)
+│   │   ├── schema.prisma       # Relational models (User, Hospital, Beds, Staff, Ambulance, EmergencyRequest, etc.)
+│   │   └── seed.ts             # Bengaluru seed data (Victoria, Manipal, St. John's, Aster CMI, Bowring, etc.)
 │   ├── src/
-│   │   ├── controllers/        # hospitalController, locationController, adminController
+│   │   ├── controllers/        # hospitalController, emergencyController, adminController, locationController
+│   │   ├── data/               # bengaluru_hospitals_resource_demo.csv (sample CSV data)
 │   │   ├── middleware/         # authMiddleware (JWT role verification)
-│   │   ├── routes/             # hospitalRoutes, locationRoutes, authRoutes, adminRoutes
-│   │   ├── services/           # osmHospitalService (Overpass API), locationService (Nominatim)
-│   │   ├── utils/              # spatial.ts (Haversine math), freshness.ts
-│   │   ├── testStageNearbyHospitals.ts # Automated 31-point verification suite
+│   │   ├── routes/             # hospitalRoutes, emergencyRoutes, locationRoutes, authRoutes, adminRoutes
+│   │   ├── services/           # osmHospitalService (Overpass API + demo resources), csvResourceLoader.ts
+│   │   ├── utils/              # formatHospital.ts, spatial.ts (Haversine math), freshness.ts
+│   │   ├── testResourceFeatures.ts     # Automated 43-point Resource & Ambulance verification suite
+│   │   ├── testStageNearbyHospitals.ts # Automated 31-point Nearby Discovery verification suite
 │   │   └── index.ts            # Express server & Socket.IO live stream broadcaster
 │   ├── .env.example            # Safe environment template (no secrets committed)
 │   └── package.json
@@ -242,7 +290,7 @@ Surge_Watch/
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/your-username/Surge_Watch.git
+git clone https://github.com/Sangu-dev/Surge_Watch.git
 cd Surge_Watch
 ```
 
@@ -296,99 +344,128 @@ npm run dev:client
 
 Open your browser and navigate to:
 👉 **`http://localhost:5173`** (Landing Page)  
-👉 **`http://localhost:5173/search`** (Emergency Hospital Discovery & Map)
+👉 **`http://localhost:5173/find`** (Emergency Hospital Discovery, Capacity Matrix & Map)  
+👉 **`http://localhost:5173/admin`** (Hospital Resource & Capacity Management Portal)
 
 ---
 
-## 🧪 Automated Testing & Verification
+## 🧪 Automated Testing & Verification (43-Point Feature Suite)
 
-SurgeWatch includes a comprehensive 31-point automated integration test suite in `server/src/testStageNearbyHospitals.ts` covering coordinate validation, radius boundaries, Overpass OSM discovery, Haversine distance math, reverse geocoding, and capacity transparency:
+SurgeWatch includes two distinct, comprehensive automated test suites covering all discovery and resource availability subsystems:
 
-Execute the nearby discovery test suite:
+### 1. Resource Availability, Staffing & Ambulance Fleet Suite (43 / 43 Passed)
 ```bash
-# From repository root
-npm run test:nearby
-
-# Or from server directory
-cd server && npm run test:nearby
+# Run the complete resource features test suite
+cd server && npm run test:features
 ```
 
-### 📊 Verified Test Scenarios (31 / 31 Passed, 0 Failed):
-
+#### 📊 Verified Scenarios (43 Assertions, 0 Failures):
 | Test Suite | Assertions Verified | Status |
 | :--- | :--- | :---: |
-| **1. Coordinate Validation** | Missing coordinates rejected (`400 Bad Request`); latitude $> 90^{\circ}$ rejected | ✅ PASS |
-| **2. Radius Validation** | Unsupported radius `7 km` rejected (`400 Bad Request`); `20 km` rejected | ✅ PASS |
-| **3. Dual Endpoint Routing** | Accessible at both `/api/hospitals/nearby` and `/api/v1/hospitals/nearby` | ✅ PASS |
-| **4. 5 km Discovery** | Returns 200 OK; returns all matching facilities (~230 hospitals); 0 perimeter violations; strict distance ascending order | ✅ PASS |
-| **5. 10 km Discovery** | Returns 200 OK; returns $\ge 5\text{ km}$ count (~649 hospitals); 100% of 5 km facilities present as superset; 0 perimeter violations | ✅ PASS |
-| **6. 15 km Discovery** | Returns 200 OK; returns $\ge 10\text{ km}$ count (~967 hospitals); 100% of 10 km facilities present as superset; 0 perimeter violations | ✅ PASS |
-| **7. Elimination of 5-Cap** | Confirmed complete removal of arbitrary 5-hospital limit; renders full matching datasets | ✅ PASS |
-| **8. Data Integrity & Non-Fabrication** | Verified no fabricated default phone numbers; all coordinates verified; OSM attribution & disclaimers verified | ✅ PASS |
-| **9. Reverse Geocoding** | Resolves coordinates to neighborhood addresses via Nominatim (`"Mahayogi Vemana Road, Koramangala East"`) | ✅ PASS |
-| **10. Approximate IP Geolocation** | Resolves city-level IP; flags `isGpsAccurate: false`; tags `IP_APPROXIMATE`; provides explicit user disclaimer | ✅ PASS |
+| **1. Bed Availability & Mathematical Invariance** | Verified `occupied = total - available`; positive non-null total capacity; emergency ER bays and ICU bays availability verified | ✅ PASS |
+| **2. Medical Staff Availability & Shift Telemetry** | Doctors on duty, doctors available for immediate triage, nurses on duty, shift classification (`DAY_SHIFT` / `NIGHT_SHIFT`), and detailed multi-specialty duty roster | ✅ PASS |
+| **3. Ambulance Fleet & License Plate Status** | Fleet tracking, status counts, vehicle license plates (`KA-01-EA-108`, `KA-05-MB-...`), vehicle types (ALS, BLS, Mobile ICU), and station base locations | ✅ PASS |
+| **4. Data Provenance & Safety Disclaimers** | Verified `MANUAL` / `LIVE_INTEGRATION` / `DEMO` labeling and mandatory safety disclaimer for simulated prototype records | ✅ PASS |
+| **5. Service Filtering for Discovery** | Verified discovery endpoints filter correctly for `service=ER`, `service=DOCTORS`, `service=NURSES`, `service=AMBULANCE`, `service=ICU` | ✅ PASS |
+| **6. Emergency Ambulance Dispatch & Release Lifecycle** | Dispatches available ambulance via `POST /emergency/dispatch`, validates `ASSIGNED` status transition, tests `AT_SCENE` status update, releases vehicle via `POST /emergency/release` back to `AVAILABLE`, and validates real-time Socket.IO broadcasts | ✅ PASS |
+
+### 2. Geospatial Discovery & Radius Perimeter Suite (31 / 31 Passed)
+```bash
+cd server && npm run test:nearby
+```
+- Validates 5 km, 10 km, and 15 km radii enforcement.
+- Asserts strict geodesic distance sorting ($d_1 \le d_2 \le \dots \le d_n$).
+- Verifies elimination of arbitrary 5-record limit caps.
+- Validates Nominatim reverse geocoding and IP geolocation fallback.
 
 ---
 
 ## 📡 REST API Reference
 
-### Nearby Hospital Discovery Endpoint
-
+### 1. Hospital Resource & Capacity Detail
 ```http
-GET /api/hospitals/nearby?lat={latitude}&lon={longitude}&radiusKm={5|10|15}
+GET /api/v1/hospitals/:id
 ```
-*(Also available as `/api/v1/hospitals/nearby`)*
-
-#### Request Parameters:
-| Parameter | Type | Required | Description |
-| :--- | :--- | :---: | :--- |
-| `lat` | `float` | **Yes** | Latitude of user/incident origin ($-90.0 \le \text{lat} \le 90.0$) |
-| `lon` *(or `lng`)* | `float` | **Yes** | Longitude of user/incident origin ($-180.0 \le \text{lon} \le 180.0$) |
-| `radiusKm` *(or `radius`)* | `int` | **Yes** | Search perimeter in kilometers. **Strictly `5`, `10`, or `15`**. Other values return `400 Bad Request`. |
-
-#### Response Schema (`200 OK`):
+Returns a complete facility profile with structured bed breakdown, medical staff roster, and ambulance fleet status:
 ```json
 {
   "success": true,
-  "count": 230,
-  "data": [
-    {
-      "id": "osm-node-123456789",
-      "name": "HCG Hospital Koramangala",
-      "address": "80 Feet Road, 4th Block, Koramangala, Bengaluru",
-      "phone": "+91 80 4060 8888",
-      "contactAvailable": true,
-      "distance": "0.2 km",
-      "distanceKm": 0.23,
-      "distanceType": "straight_line",
-      "facilityType": "Hospital",
-      "isRegistered": false,
-      "hasLiveTelemetry": false,
-      "directionsUrl": "https://www.google.com/maps/dir/?api=1&destination=12.9341,77.6259",
-      "location": {
-        "lat": 12.9341,
-        "lng": 77.6259
-      }
-    }
-  ],
-  "meta": {
-    "radiusKm": 5,
-    "userLocation": {
-      "lat": 12.9352,
-      "lon": 77.6245
+  "data": {
+    "id": "reg-victoria",
+    "name": "Victoria Hospital & Trauma Care Centre",
+    "facilityType": "Hospital",
+    "operatingStatus": "OPERATIONAL",
+    "dataProvenance": "MANUAL",
+    "bedsSummary": {
+      "totalBeds": 131,
+      "availableBeds": 38,
+      "occupiedBeds": 93,
+      "icuBeds": { "total": 24, "available": 7, "occupied": 17 },
+      "emergencyBeds": { "total": 50, "available": 12, "occupied": 38 }
     },
-    "source": "OpenStreetMap",
-    "attribution": "Data © OpenStreetMap contributors, ODbL 1.0",
-    "coverageNotice": "Community-sourced healthcare facilities. Emergency room intake confirmation advised."
+    "staffSummary": {
+      "doctorsOnDuty": 15,
+      "doctorsAvailable": 7,
+      "doctorShiftStatus": "DAY_SHIFT",
+      "nursesOnDuty": 24,
+      "nursesAvailable": 10,
+      "nurseShiftStatus": "DAY_SHIFT"
+    },
+    "ambulanceSummary": {
+      "totalAmbulances": 4,
+      "availableAmbulances": 3,
+      "assignedAmbulances": 1
+    },
+    "ambulanceFleet": [
+      {
+        "id": "reg-victoria-amb-1",
+        "registrationPlate": "KA-01-EA-108",
+        "ambulanceType": "ADVANCED_LIFE_SUPPORT_ALS",
+        "typeLabel": "ALS Ambulance (Advanced Life Support)",
+        "status": "AVAILABLE",
+        "currentLocation": "Victoria Hospital Base Station"
+      }
+    ]
   }
 }
 ```
 
-#### Error Response (`400 Bad Request`):
+### 2. Emergency Ambulance Dispatch & Fleet Management
+```http
+GET /emergency/ambulances
+POST /emergency/dispatch
+PATCH /emergency/ambulances/:id/status
+POST /emergency/release
+```
+
+#### Dispatch Request (`POST /emergency/dispatch`):
 ```json
 {
-  "success": false,
-  "error": "Invalid radiusKm. Allowed values are 5, 10, or 15 km."
+  "hospitalId": "reg-victoria",
+  "emergencyType": "TRAUMA_ACCIDENT",
+  "patientName": "Emergency Casualty Patient",
+  "contactPhone": "+91-98765-43210",
+  "dispatchNotes": "Collision near City Market junction",
+  "latitude": 12.9634,
+  "longitude": 77.5750
+}
+```
+
+#### Dispatch Response (`201 Created`):
+```json
+{
+  "success": true,
+  "message": "Ambulance dispatched successfully.",
+  "data": {
+    "requestId": "req-1729267123",
+    "ambulance": {
+      "id": "reg-victoria-amb-1",
+      "registrationPlate": "KA-01-EA-108",
+      "ambulanceType": "ADVANCED_LIFE_SUPPORT_ALS",
+      "status": "ASSIGNED"
+    },
+    "disclaimer": "Emergency dispatch simulation notice: Always dial 108/112 in life-threatening scenarios."
+  }
 }
 ```
 
@@ -398,26 +475,30 @@ GET /api/hospitals/nearby?lat={latitude}&lon={longitude}&radiusKm={5|10|15}
 
 | Method | Endpoint | Description | Query / Body Parameters |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/api/hospitals/nearby` | Discovers all matching hospitals within selected radius via OpenStreetMap & local registry, sorted by straight-line distance | `lat`, `lon` (or `lng`), `radiusKm` (`5`, `10`, `15`) |
-| `GET` | `/api/v1/hospitals/search` | Radius search with service filters (`ALL`, `ICU`, `TRAUMA`, `AMBULANCE`) | `lat`, `lng`, `radius`, `service`, `sortBy` |
-| `GET` | `/api/v1/hospitals/:id` | Detailed hospital profile, bed breakdown, and doctor metrics | None |
+| `GET` | `/api/hospitals/nearby` | Discovers all matching hospitals within selected radius via OpenStreetMap & local registry | `lat`, `lon` (or `lng`), `radiusKm` (`5`, `10`, `15`) |
+| `GET` | `/api/v1/hospitals/search` | Radius search with service filters (`ALL`, `ICU`, `ER`, `DOCTORS`, `NURSES`, `AMBULANCE`) | `lat`, `lng`, `radius`, `service`, `sortBy` |
+| `GET` | `/api/v1/hospitals/:id` | Detailed hospital profile, bed census, clinical staff roster, and ambulance fleet | None |
+| `GET` | `/emergency/ambulances` | Lists registered emergency ambulance fleet with live status and license plates | `hospitalId` (optional) |
+| `POST`| `/emergency/dispatch` | Dispatches available ambulance for an emergency casualty incident | Body: `{ hospitalId, emergencyType, patientName, contactPhone, dispatchNotes, latitude, longitude }` |
+| `PATCH`| `/emergency/ambulances/:id/status` | Updates vehicle operational status (`AVAILABLE`, `ASSIGNED`, `EN_ROUTE`, `AT_SCENE`) | Body: `{ status }` |
+| `POST`| `/emergency/release` | Releases assigned ambulance back to station and marks request completed | Body: `{ requestId }` |
 | `GET` | `/api/v1/location/reverse-geocode`| Resolves coordinates to neighborhood address via Nominatim | `lat`, `lng` |
 | `GET` | `/api/v1/location/ip-lookup` | Returns approximate city-level IP location with disclaimer | None |
 | `POST`| `/api/v1/auth/login-admin` | Authenticates hospital administrator & returns JWT token | Body: `{ email, password }` |
 | `PUT` | `/api/v1/admin/hospitals/:id/resources` | Updates available beds, doctors, and ambulances | Bearer Token, Body: `{ beds, staff, ambulances }` |
 
-Interactive API documentation is also available live at:
+Interactive Swagger API documentation is available live at:
 👉 **`http://localhost:5000/api/docs`**
 
 ---
 
 ## 🔒 Security, Privacy & Git Best Practices
 
-- **Zero Committed Secrets**: `.env` and `dev.db` files are strictly excluded from version control via `.gitignore`.
+- **Zero Committed Secrets**: `.env`, `dev.db`, and backup files are strictly excluded from version control via `.gitignore`.
 - **Environment Template**: `.env.example` provides a sanitized configuration reference for developers.
 - **Privacy Protection**: Database files, system logs, build caches, and private keys are barred from git staging.
 - **Rigorous Input Sanitization**: Geographic coordinates are bounded and validated against strict numerical limits before processing.
-- **Failover Security**: Public API timeouts are enforced ($15\text{s}$ per mirror) to prevent server thread blocking.
+- **Failover Security**: Public API timeouts are enforced ($6\text{s}$ per mirror) to prevent server thread blocking.
 
 ---
 
@@ -435,3 +516,4 @@ Interactive API documentation is also available live at:
 
 ## 📄 License
 This project is licensed under the **ISC License**.
+
