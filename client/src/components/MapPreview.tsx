@@ -4,6 +4,20 @@ import { MapContainer, TileLayer, Marker, Popup, Circle, useMap, useMapEvents } 
 import L from 'leaflet';
 import type { Hospital, LocationState } from '../types';
 
+// Environment-driven map configuration
+const MAPS_API_KEY = import.meta.env.VITE_MAPS_API_KEY || '';
+const CUSTOM_TILE_URL = import.meta.env.VITE_MAP_TILE_URL || '';
+
+function getTileLayerUrl(): string {
+  if (CUSTOM_TILE_URL) {
+    return CUSTOM_TILE_URL.replace('{apiKey}', MAPS_API_KEY).replace('{key}', MAPS_API_KEY);
+  }
+  if (MAPS_API_KEY) {
+    return `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=${encodeURIComponent(MAPS_API_KEY)}`;
+  }
+  return 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+}
+
 // Fix for default Leaflet marker icons in bundlers
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -159,10 +173,10 @@ export const MapPreview: FC<MapPreviewProps> = ({
         <MapController center={center} zoom={getZoom(radiusKm)} />
         <MapEventsHandler onMapClick={onMapClick} />
 
-        {/* CARTO Positron Light Tiles */}
+        {/* Basemap Tiles with API Key Integration */}
         <TileLayer
           attribution='&copy; <a href="https://carto.com/">CARTO</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+          url={getTileLayerUrl()}
           maxZoom={19}
         />
 

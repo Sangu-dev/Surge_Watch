@@ -414,9 +414,9 @@ export const PatientSearchPage: FC = () => {
               onChange={(e) => setSortBy(e.target.value as any)}
               className="bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-800 cursor-pointer"
             >
-              <option value="distance">Straight-Line Distance (Nearest First)</option>
-              <option value="beds">Available Beds</option>
-              <option value="ambulances">Ready Ambulances</option>
+              <option value="distance">Shortest Distance (Aerial)</option>
+              <option value="beds">Most Available Beds</option>
+              <option value="ambulances">Most Ready Ambulances</option>
             </select>
           </div>
         </div>
@@ -497,7 +497,15 @@ export const PatientSearchPage: FC = () => {
                 </span>
               </div>
               <span className="text-slate-300 text-[11px]">
-                Nearest to Farthest
+                {sortBy === 'distance' ? 'Nearest to Farthest' : sortBy === 'beds' ? 'Most Available Beds First' : 'Most Ready Ambulances First'}
+                {filterFacility !== 'ALL' && ` · Filter: ${[
+                  { id: 'ICU', label: 'ICU Available' },
+                  { id: 'ER', label: 'ER Beds' },
+                  { id: 'DOCTORS', label: 'Doctors on Duty' },
+                  { id: 'NURSES', label: 'Nurses on Duty' },
+                  { id: 'AMBULANCE', label: 'Ambulances Ready' },
+                  { id: 'TRAUMA', label: 'Level 1 Trauma' },
+                ].find(f => f.id === filterFacility)?.label}`}
               </span>
             </div>
 

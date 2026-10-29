@@ -400,8 +400,9 @@ export const HospitalAdminAuthPage: FC = () => {
         {tab === 'PLATFORM_LOGIN' && (
           <div className="bg-slate-950/90 border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-xl space-y-6">
             <div>
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-purple-950 text-purple-300 border border-purple-800 text-[10px] font-bold uppercase tracking-wider mb-2">
-                Operational Governance
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-900 text-slate-300 border border-slate-700/80 text-[10px] font-semibold uppercase tracking-wider mb-2 shadow-xs">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                <span>Operational Governance</span>
               </div>
               <h3 className="text-lg font-bold text-white">Platform Administrator Portal</h3>
               <p className="text-xs text-slate-400 mt-1">
@@ -422,7 +423,7 @@ export const HospitalAdminAuthPage: FC = () => {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="superadmin@surgewatch.in"
-                    className="w-full pl-9 pr-3 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-sm text-white focus:border-purple-500 outline-hidden"
+                    className="w-full pl-9 pr-3 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-sm text-white focus:border-slate-400 outline-hidden transition-colors"
                   />
                 </div>
               </div>
@@ -439,14 +440,14 @@ export const HospitalAdminAuthPage: FC = () => {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••"
-                    className="w-full pl-9 pr-3 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-sm text-white focus:border-purple-500 outline-hidden"
+                    className="w-full pl-9 pr-3 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-sm text-white focus:border-slate-400 outline-hidden transition-colors"
                   />
                 </div>
               </div>
 
               <button
                 type="submit"
-                className="w-full inline-flex items-center justify-center gap-2 py-3 px-4 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-sm font-bold shadow-sm transition-all cursor-pointer"
+                className="w-full inline-flex items-center justify-center gap-2 py-3 px-4 bg-white hover:bg-slate-100 text-slate-950 rounded-xl text-sm font-semibold shadow-sm transition-all cursor-pointer"
               >
                 <span>Enter Platform Governance Console</span>
                 <ArrowRight className="w-4 h-4" />
@@ -458,9 +459,9 @@ export const HospitalAdminAuthPage: FC = () => {
               <button
                 type="button"
                 onClick={handleDemoPlatform}
-                className="inline-flex items-center gap-1.5 px-4 py-2 bg-purple-950/80 hover:bg-purple-900 text-purple-200 border border-purple-800/80 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700/80 hover:border-slate-600 rounded-xl text-xs font-medium transition-all cursor-pointer shadow-xs"
               >
-                <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+                <Sparkles className="w-3.5 h-3.5 text-sky-400" />
                 <span>Instant Sign In as Platform Auditor</span>
               </button>
             </div>

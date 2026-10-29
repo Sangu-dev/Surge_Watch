@@ -22,7 +22,6 @@ import { MapPreview } from '../components/MapPreview';
 import { HospitalDetailModal } from '../components/HospitalDetailModal';
 import { HospitalSkeleton } from '../components/HospitalSkeleton';
 import { useHospitalSearch } from '../hooks/useHospitalSearch';
-
 import { useDeviceLocation } from '../hooks/useDeviceLocation';
 
 interface LandingPageProps {
@@ -48,6 +47,19 @@ export const LandingPage: FC<LandingPageProps> = ({
   const [filterFacility, setFilterFacility] = useState<string>('ALL');
   const [sortBy, setSortBy] = useState<'distance' | 'beds' | 'ambulances'>('distance');
   const [manualQuery, setManualQuery] = useState<string>('');
+
+  /**
+   * Handle "Find Nearby Hospitals" click.
+   * Calls acquireGpsLocation() which triggers the browser's native
+   * geolocation permission dialog (the one shown in the screenshot).
+   * No custom modal — the browser handles it natively (once only).
+   */
+  const handleFindNearbyClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    e.preventDefault();
+    // Trigger GPS — browser shows its native permission prompt on first call only
+    acquireGpsLocation();
+    document.getElementById('search-section')?.scrollIntoView({ behavior: 'smooth' });
+  };
 
   // Landmark Preset Selection
   const handleSelectLandmark = (preset: LandmarkPreset) => {
@@ -131,6 +143,7 @@ export const LandingPage: FC<LandingPageProps> = ({
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
               <a
                 href="#search-section"
+                onClick={handleFindNearbyClick}
                 className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3.5 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold shadow-lg shadow-red-600/20 active:scale-98 transition-all"
               >
                 <Search className="w-4 h-4" />

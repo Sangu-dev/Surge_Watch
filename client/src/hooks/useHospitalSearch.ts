@@ -28,6 +28,68 @@ export function useHospitalSearch({
   const [isBackendConnected, setIsBackendConnected] = useState<boolean>(false);
   const [realtimeNotification, setRealtimeNotification] = useState<string | null>(null);
 
+  // Client-side filter + sort applied after hydration (works for both backend and offline results)
+  const applyFilterAndSort = useCallback((hospitals: Hospital[]): Hospital[] => {
+    // Filter
+    let filtered = hospitals;
+    if (service !== 'ALL') {
+      filtered = hospitals.filter((hosp) => {
+        if (service === 'ICU') {
+          const icu = hosp.beds.find((b) => b.category === 'EMERGENCY_ICU');
+          return (icu?.availableBeds ?? 0) > 0;
+        }
+        if (service === 'ER') {
+          const er = hosp.beds.find(
+            (b) => b.category === 'EMERGENCY_GENERAL' || b.category === 'TRAUMA_RESUSCITATION'
+          );
+          return (er?.availableBeds ?? 0) > 0;
+        }
+        if (service === 'DOCTORS') {
+          const docs = (hosp.staff || []).filter((s) =>
+            ['EMERGENCY_PHYSICIAN', 'TRAUMA_SURGEON', 'ANESTHESIOLOGIST', 'DUTY_MEDICAL_OFFICER'].includes(
+              s.staffCategory
+            )
+          );
+          const avail = docs.reduce((acc, s) => acc + (s.currentlyAvailableCount || 0), 0);
+          return avail > 0;
+        }
+        if (service === 'NURSES') {
+          const nurses = (hosp.staff || []).filter((s) =>
+            ['EMERGENCY_NURSE', 'ICU_TRIAGE_NURSE', 'GENERAL_DUTY_NURSE'].includes(s.staffCategory)
+          );
+          const avail = nurses.reduce((acc, s) => acc + (s.currentlyAvailableCount || 0), 0);
+          return avail > 0;
+        }
+        if (service === 'TRAUMA') {
+          return hosp.emergencyServices.some((s) => s.toLowerCase().includes('trauma'));
+        }
+        if (service === 'AMBULANCE') {
+          const ready = (hosp.ambulances || []).reduce((acc, a) => acc + (a.availableReadyCount || 0), 0);
+          return ready > 0;
+        }
+        return true;
+      });
+    }
+
+    // Sort
+    const sorted = [...filtered].sort((a, b) => {
+      if (sortBy === 'distance') return (a.distanceKm || 0) - (b.distanceKm || 0);
+      if (sortBy === 'beds') {
+        const aBeds = (a.beds || []).reduce((acc, x) => acc + (x.availableBeds || 0), 0);
+        const bBeds = (b.beds || []).reduce((acc, x) => acc + (x.availableBeds || 0), 0);
+        return bBeds - aBeds;
+      }
+      if (sortBy === 'ambulances') {
+        const aAmb = (a.ambulances || []).reduce((acc, x) => acc + (x.availableReadyCount || 0), 0);
+        const bAmb = (b.ambulances || []).reduce((acc, x) => acc + (x.availableReadyCount || 0), 0);
+        return bAmb - aAmb;
+      }
+      return 0;
+    });
+
+    return sorted;
+  }, [service, sortBy]);
+
   const fetchResults = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -40,13 +102,14 @@ export function useHospitalSearch({
         setIsBackendConnected(true);
         if (remote.hospitals && Array.isArray(remote.hospitals)) {
           const hydrated = remote.hospitals.map(getHospitalWithResources);
-          setHospitals(hydrated);
+          // Apply client-side filter + sort after hydration (backend /nearby ignores service/sortBy)
+          setHospitals(applyFilterAndSort(hydrated));
           setMetadata(remote.metadata || null);
           setLoading(false);
           return;
         } else if (Array.isArray(remote)) {
-          const hydrated = remote.map(getHospitalWithResources);
-          setHospitals(hydrated);
+          const hydrated = (remote as Hospital[]).map(getHospitalWithResources);
+          setHospitals(applyFilterAndSort(hydrated));
           setLoading(false);
           return;
         }
@@ -132,7 +195,7 @@ export function useHospitalSearch({
       timestamp: new Date().toISOString(),
     });
     setLoading(false);
-  }, [lat, lng, radius, service, sortBy]);
+  }, [lat, lng, radius, service, sortBy, applyFilterAndSort]);
 
   useEffect(() => {
     fetchResults();
