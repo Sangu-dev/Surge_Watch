@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import type { FC } from 'react';
 import {
   Activity,
@@ -12,7 +12,9 @@ import {
   CheckCircle2,
   SlidersHorizontal,
   ChevronRight,
-  Info
+  Info,
+  ChevronDown,
+  X
 } from 'lucide-react';
 import { BENGALURU_LANDMARKS } from '../data/mockHospitals';
 import type { Hospital, LandmarkPreset } from '../types';
@@ -23,6 +25,8 @@ import { HospitalDetailModal } from '../components/HospitalDetailModal';
 import { HospitalSkeleton } from '../components/HospitalSkeleton';
 import { useHospitalSearch } from '../hooks/useHospitalSearch';
 import { useDeviceLocation } from '../hooks/useDeviceLocation';
+import { fetchApprovedLocations } from '../services/api';
+import { getSocket } from '../services/socket';
 
 interface LandingPageProps {
   onNavigateToPatientLogin: () => void;
@@ -48,6 +52,13 @@ export const LandingPage: FC<LandingPageProps> = ({
   const [sortBy, setSortBy] = useState<'distance' | 'beds' | 'ambulances'>('distance');
   const [manualQuery, setManualQuery] = useState<string>('');
 
+  // Dynamic Approved Hospitals & Localities from Database
+  const [approvedHospitals, setApprovedHospitals] = useState<Hospital[]>([]);
+  const [approvedAreas, setApprovedAreas] = useState<Array<{ name: string; area: string; latitude: number; longitude: number }>>([]);
+  const [locationDropdownValue, setLocationDropdownValue] = useState<string>('');
+  const [showSuggestions, setShowSuggestions] = useState<boolean>(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
   /**
    * Handle "Find Nearby Hospitals" click.
    * Calls acquireGpsLocation() which triggers the browser's native
@@ -64,25 +75,124 @@ export const LandingPage: FC<LandingPageProps> = ({
   // Landmark Preset Selection
   const handleSelectLandmark = (preset: LandmarkPreset) => {
     selectManualLocation(preset.latitude, preset.longitude, `${preset.name} (${preset.area})`);
+    setLocationDropdownValue(`preset:${preset.id}`);
   };
+
+  // Hospital Direct Selection
+  const handleSelectHospital = (hosp: Hospital) => {
+    selectManualLocation(hosp.latitude, hosp.longitude, `${hosp.name} (${hosp.area || 'Bengaluru'})`);
+    setManualQuery('');
+    setShowSuggestions(false);
+    setLocationDropdownValue(`hosp:${hosp.id}`);
+  };
+
+  // Area Direct Selection
+  const handleSelectArea = (areaItem: { name: string; latitude: number; longitude: number }) => {
+    selectManualLocation(areaItem.latitude, areaItem.longitude, `${areaItem.name} (Bengaluru)`);
+    setManualQuery('');
+    setShowSuggestions(false);
+    setLocationDropdownValue(`area:${areaItem.name}`);
+  };
+
+  // Handle Location Selection Dropdown change
+  const handleLocationDropdownChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const val = e.target.value;
+    setLocationDropdownValue(val);
+    if (!val) return;
+
+    if (val.startsWith('hosp:')) {
+      const hospId = val.replace('hosp:', '');
+      const found = approvedHospitals.find((h) => h.id === hospId);
+      if (found) {
+        handleSelectHospital(found);
+      }
+    } else if (val.startsWith('area:')) {
+      const areaName = val.replace('area:', '');
+      const foundArea = approvedAreas.find((a) => a.name === areaName);
+      if (foundArea) {
+        handleSelectArea(foundArea);
+      }
+    } else if (val.startsWith('preset:')) {
+      const presetId = val.replace('preset:', '');
+      const foundPreset = BENGALURU_LANDMARKS.find((p) => p.id === presetId);
+      if (foundPreset) {
+        handleSelectLandmark(foundPreset);
+      }
+    }
+  };
+
+  // Suggestions computation for autocomplete
+  const suggestions = useMemo(() => {
+    const q = manualQuery.toLowerCase().trim();
+    if (!q) {
+      return { hospitals: [], areas: [], landmarks: [], hasMatches: false };
+    }
+
+    const matchedHospitals = approvedHospitals.filter(
+      (h) =>
+        h.name.toLowerCase().includes(q) ||
+        (h.area && h.area.toLowerCase().includes(q)) ||
+        (h.address && h.address.toLowerCase().includes(q))
+    ).slice(0, 5);
+
+    const matchedAreas = approvedAreas.filter(
+      (a) => a.name.toLowerCase().includes(q) || a.area.toLowerCase().includes(q)
+    ).slice(0, 3);
+
+    const matchedLandmarks = BENGALURU_LANDMARKS.filter(
+      (l) => l.name.toLowerCase().includes(q) || l.area.toLowerCase().includes(q)
+    ).slice(0, 3);
+
+    return {
+      hospitals: matchedHospitals,
+      areas: matchedAreas,
+      landmarks: matchedLandmarks,
+      hasMatches: matchedHospitals.length > 0 || matchedAreas.length > 0 || matchedLandmarks.length > 0,
+    };
+  }, [manualQuery, approvedHospitals, approvedAreas]);
 
   // Manual search submit
   const handleManualSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (!manualQuery.trim()) return;
+    setShowSuggestions(false);
 
-    const match = BENGALURU_LANDMARKS.find((l) =>
-      l.name.toLowerCase().includes(manualQuery.toLowerCase()) ||
-      l.area.toLowerCase().includes(manualQuery.toLowerCase())
+    const q = manualQuery.toLowerCase().trim();
+
+    // 1. Check approved hospitals first
+    const hospMatch = approvedHospitals.find(
+      (h) =>
+        h.name.toLowerCase().includes(q) ||
+        (h.area && h.area.toLowerCase().includes(q)) ||
+        (h.address && h.address.toLowerCase().includes(q))
     );
-
-    if (match) {
-      handleSelectLandmark(match);
-      setManualQuery('');
-    } else {
-      selectManualLocation(location.lat, location.lng, `Near "${manualQuery.trim()}" (Bengaluru)`);
-      setManualQuery('');
+    if (hospMatch) {
+      handleSelectHospital(hospMatch);
+      return;
     }
+
+    // 2. Check approved areas
+    const areaMatch = approvedAreas.find(
+      (a) => a.name.toLowerCase().includes(q) || a.area.toLowerCase().includes(q)
+    );
+    if (areaMatch) {
+      handleSelectArea(areaMatch);
+      return;
+    }
+
+    // 3. Check landmarks
+    const landmarkMatch = BENGALURU_LANDMARKS.find(
+      (l) => l.name.toLowerCase().includes(q) || l.area.toLowerCase().includes(q)
+    );
+    if (landmarkMatch) {
+      handleSelectLandmark(landmarkMatch);
+      setManualQuery('');
+      return;
+    }
+
+    // 4. Default fallback near text query
+    selectManualLocation(location.lat, location.lng, `Near "${manualQuery.trim()}" (Bengaluru)`);
+    setManualQuery('');
   };
 
   // Interactive map click handler to move accident pin
@@ -106,6 +216,34 @@ export const LandingPage: FC<LandingPageProps> = ({
     service: filterFacility,
     sortBy,
   });
+
+  const loadApprovedLocations = useCallback(async () => {
+    try {
+      const res = await fetchApprovedLocations();
+      if (res && res.hospitals) {
+        setApprovedHospitals(res.hospitals);
+        setApprovedAreas(res.areas || []);
+      }
+    } catch (err) {
+      console.warn('[LandingPage] Could not load approved locations:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadApprovedLocations();
+
+    const socket = getSocket();
+    const handleStatusUpdate = (data: any) => {
+      console.log('[LandingPage] Realtime hospital verification update received:', data);
+      loadApprovedLocations();
+      refetch();
+    };
+
+    socket.on('hospital_registration_updated', handleStatusUpdate);
+    return () => {
+      socket.off('hospital_registration_updated', handleStatusUpdate);
+    };
+  }, [loadApprovedLocations, refetch]);
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
@@ -164,17 +302,156 @@ export const LandingPage: FC<LandingPageProps> = ({
           {/* Location Selection Command Bar */}
           <div className="mt-12 max-w-3xl mx-auto bg-white/95 backdrop-blur-md rounded-2xl p-4 sm:p-5 shadow-2xl border border-slate-200 text-slate-900">
             <div className="flex flex-col gap-3">
+              {/* Quick Pick Location Dropdown */}
+              <div className="relative">
+                <label htmlFor="location-select" className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
+                  Location Selection Form:
+                </label>
+                <div className="relative">
+                  <Building2 className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <select
+                    id="location-select"
+                    value={locationDropdownValue}
+                    onChange={handleLocationDropdownChange}
+                    className="w-full pl-10 pr-9 py-2.5 bg-slate-50 border border-slate-300 focus:border-sky-600 focus:ring-2 focus:ring-sky-500/20 rounded-xl text-xs sm:text-sm font-semibold text-slate-800 outline-hidden cursor-pointer appearance-none"
+                  >
+                    <option value="">🎯 Direct Pick: Select from Approved Hospitals & Key Localities...</option>
+                    <optgroup label="🏥 Approved Emergency Hospitals (Live Database)">
+                      {approvedHospitals.map((h) => (
+                        <option key={h.id} value={`hosp:${h.id}`}>
+                          {h.name} — {h.area} (Verified Approved)
+                        </option>
+                      ))}
+                    </optgroup>
+                    {approvedAreas.length > 0 && (
+                      <optgroup label="📍 Hospital Localities / Zones">
+                        {approvedAreas.map((a) => (
+                          <option key={a.name} value={`area:${a.name}`}>
+                            {a.name} (Bengaluru)
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    <optgroup label="🚩 Major Bengaluru Landmarks">
+                      {BENGALURU_LANDMARKS.map((preset) => (
+                        <option key={preset.id} value={`preset:${preset.id}`}>
+                          {preset.name} ({preset.area})
+                        </option>
+                      ))}
+                    </optgroup>
+                  </select>
+                  <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
+              </div>
+
               {/* Form Input + GPS Trigger */}
-              <form onSubmit={handleManualSearch} className="flex flex-col sm:flex-row gap-2">
+              <form onSubmit={handleManualSearch} className="flex flex-col sm:flex-row gap-2 relative">
                 <div className="relative flex-1">
                   <MapPin className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
+                    ref={searchInputRef}
                     type="text"
                     value={manualQuery}
-                    onChange={(e) => setManualQuery(e.target.value)}
-                    placeholder="Enter accident location, street, or landmark in Bengaluru..."
-                    className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-300 focus:border-sky-600 focus:ring-2 focus:ring-sky-500/20 rounded-xl text-sm font-medium text-slate-900 placeholder:text-slate-400 outline-hidden"
+                    onChange={(e) => {
+                      setManualQuery(e.target.value);
+                      setShowSuggestions(true);
+                    }}
+                    onFocus={() => {
+                      if (manualQuery.trim()) setShowSuggestions(true);
+                    }}
+                    placeholder="Search approved hospital, accident locality, or landmark in Bengaluru..."
+                    className="w-full pl-11 pr-8 py-3 bg-slate-50 border border-slate-300 focus:border-sky-600 focus:ring-2 focus:ring-sky-500/20 rounded-xl text-sm font-medium text-slate-900 placeholder:text-slate-400 outline-hidden"
                   />
+                  {manualQuery && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setManualQuery('');
+                        setShowSuggestions(false);
+                      }}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+
+                  {/* Autocomplete Suggestions Popup */}
+                  {showSuggestions && suggestions.hasMatches && (
+                    <div className="absolute left-0 right-0 top-full mt-1.5 bg-white rounded-xl shadow-2xl border border-slate-200 z-50 overflow-hidden max-h-72 overflow-y-auto divide-y divide-slate-100">
+                      {suggestions.hospitals.length > 0 && (
+                        <div className="p-1">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-2.5 py-1 block">
+                            Approved Hospitals
+                          </span>
+                          {suggestions.hospitals.map((h) => (
+                            <button
+                              key={h.id}
+                              type="button"
+                              onClick={() => handleSelectHospital(h)}
+                              className="w-full text-left px-2.5 py-2 hover:bg-sky-50 rounded-lg flex items-start gap-2.5 transition-colors cursor-pointer"
+                            >
+                              <Building2 className="w-4 h-4 text-sky-600 mt-0.5 flex-shrink-0" />
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-bold text-xs text-slate-900 truncate">
+                                    {h.name}
+                                  </span>
+                                  <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 text-[9px] font-bold rounded">
+                                    Approved
+                                  </span>
+                                </div>
+                                <span className="text-[11px] text-slate-500 block truncate">
+                                  {h.address || h.area}
+                                </span>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {suggestions.areas.length > 0 && (
+                        <div className="p-1">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-2.5 py-1 block">
+                            Hospital Localities
+                          </span>
+                          {suggestions.areas.map((a) => (
+                            <button
+                              key={a.name}
+                              type="button"
+                              onClick={() => handleSelectArea(a)}
+                              className="w-full text-left px-2.5 py-2 hover:bg-sky-50 rounded-lg flex items-center gap-2.5 transition-colors cursor-pointer"
+                            >
+                              <MapPin className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
+                              <span className="text-xs font-semibold text-slate-800">{a.name}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {suggestions.landmarks.length > 0 && (
+                        <div className="p-1">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-2.5 py-1 block">
+                            Landmarks
+                          </span>
+                          {suggestions.landmarks.map((l) => (
+                            <button
+                              key={l.id}
+                              type="button"
+                              onClick={() => {
+                                handleSelectLandmark(l);
+                                setManualQuery('');
+                                setShowSuggestions(false);
+                              }}
+                              className="w-full text-left px-2.5 py-2 hover:bg-sky-50 rounded-lg flex items-center gap-2.5 transition-colors cursor-pointer"
+                            >
+                              <Compass className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
+                              <span className="text-xs font-semibold text-slate-800">{l.name}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex gap-2">
@@ -217,12 +494,31 @@ export const LandingPage: FC<LandingPageProps> = ({
                 </div>
               )}
 
-              {/* One-Click Bengaluru Landmark Chips */}
+              {/* One-Click Bengaluru Landmark & Approved Hospital Chips */}
               <div className="pt-1">
                 <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1.5">
-                  Or pick a common Bengaluru emergency landmark:
+                  Or pick an approved hospital or common emergency landmark:
                 </span>
                 <div className="flex flex-wrap gap-1.5">
+                  {approvedHospitals.map((hosp) => {
+                    const isSelected = location.label.includes(hosp.name);
+                    return (
+                      <button
+                        key={hosp.id}
+                        type="button"
+                        onClick={() => handleSelectHospital(hosp)}
+                        className={`text-xs px-2.5 py-1 rounded-lg font-semibold transition-all cursor-pointer inline-flex items-center gap-1.5 ${
+                          isSelected
+                            ? 'bg-sky-700 text-white shadow-2xs'
+                            : 'bg-sky-50 hover:bg-sky-100 text-sky-900 border border-sky-200'
+                        }`}
+                        title={`Pin ${hosp.name} (${hosp.area})`}
+                      >
+                        <Building2 className="w-3 h-3 text-sky-600" />
+                        <span>{hosp.name.split('(')[0].replace('Hospital', 'Hosp.').trim()}</span>
+                      </button>
+                    );
+                  })}
                   {BENGALURU_LANDMARKS.map((preset) => {
                     const isSelected = location.label.includes(preset.name);
                     return (

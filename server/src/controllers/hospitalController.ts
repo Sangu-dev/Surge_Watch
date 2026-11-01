@@ -6,6 +6,58 @@ import { formatHospitalPayload } from '../utils/formatHospital.js';
 export { formatHospitalPayload } from '../utils/formatHospital.js';
 
 /**
+ * Dynamic Approved Hospital & Location Discovery Endpoint
+ * GET /api/v1/hospitals/approved-locations
+ * Returns all verified/approved hospitals from the database with their coordinates, areas, and capacity.
+ * Used for dynamic Home Page location selection and autocomplete.
+ */
+export const getApprovedLocations = async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const approvedHospitals = await prisma.hospital.findMany({
+      where: {
+        verificationStatus: { in: ['VERIFIED', 'APPROVED'] },
+      },
+      include: {
+        beds: true,
+        staff: true,
+        ambulances: true,
+      },
+      orderBy: {
+        name: 'asc',
+      },
+    });
+
+    const formatted = approvedHospitals.map((hosp) => formatHospitalPayload(hosp));
+
+    // Extract unique hospital areas/localities
+    const areaMap = new Map<string, { name: string; area: string; latitude: number; longitude: number }>();
+    for (const h of formatted) {
+      if (h.area && !areaMap.has(h.area.toLowerCase())) {
+        areaMap.set(h.area.toLowerCase(), {
+          name: h.area,
+          area: h.area,
+          latitude: h.latitude,
+          longitude: h.longitude,
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      count: formatted.length,
+      data: formatted,
+      areas: Array.from(areaMap.values()),
+    });
+  } catch (error) {
+    console.error('Approved locations error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to retrieve approved hospital locations.',
+    });
+  }
+};
+
+/**
  * Dedicated Real Hospital Discovery Endpoint
  * GET /api/hospitals/nearby?lat=<lat>&lon=<lon>&radiusKm=5 (supports 5, 10, 15 km)
  */
@@ -69,6 +121,10 @@ export const getNearbyHospitals = async (req: Request, res: Response): Promise<v
  */
 export const searchHospitals = async (req: Request, res: Response): Promise<void> => {
   try {
+    if (req.query.all === 'true' || req.query.status === 'approved' || req.query.status === 'VERIFIED') {
+      return getApprovedLocations(req, res);
+    }
+
     const lat = parseFloat(req.query.lat as string) || 12.9352;
     const lng = parseFloat((req.query.lng as string) || (req.query.lon as string)) || 77.6245;
     const radius = parseFloat((req.query.radius as string) || (req.query.radiusKm as string)) || 10;

@@ -1,6 +1,47 @@
 // API client connecting frontend to backend server on port 5000 with resilient mock fallback
 
-const API_BASE = 'http://localhost:5000/api/v1';
+export const API_BASE = 'http://localhost:5000/api/v1';
+
+export async function submitHospitalRegistration(payload: {
+  hospitalName: string;
+  hospitalAddress: string;
+  area: string;
+  officialEmail: string;
+  emergencyPhone: string;
+  regNumber: string;
+  applicantName: string;
+  applicantDesignation: string;
+}) {
+  const res = await fetch(`${API_BASE}/auth/request-hospital-access`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to submit hospital registration dossier.');
+  }
+  return data;
+}
+
+export async function loginAdminApi(email: string, password?: string, isDemo?: boolean) {
+  const res = await fetch(`${API_BASE}/auth/login-admin`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ email, password, isDemo }),
+  });
+
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to authenticate administrator account.');
+  }
+  return data;
+}
 
 export async function fetchNearbyHospitals(
   lat: number,
@@ -35,6 +76,24 @@ export async function fetchNearbyHospitals(
     throw new Error(`HTTP ${res.status}`);
   } catch (err) {
     console.warn('[API Client] Backend unreachable, using client offline calculation:', err);
+    return null;
+  }
+}
+
+export async function fetchApprovedLocations(): Promise<{
+  hospitals: any[];
+  areas: Array<{ name: string; area: string; latitude: number; longitude: number }>;
+} | null> {
+  try {
+    const res = await fetch(`${API_BASE}/hospitals/approved-locations`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    return {
+      hospitals: json.data || [],
+      areas: json.areas || [],
+    };
+  } catch (err) {
+    console.warn('[API Client] Failed to fetch approved locations:', err);
     return null;
   }
 }
@@ -141,7 +200,7 @@ export async function approvePlatformRequest(id: string, token: string, notes?: 
     body: JSON.stringify({ notes }),
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to approve request');
+  if (!res.ok || !data.success) throw new Error(data.error || 'Failed to approve request');
   return data;
 }
 
@@ -155,7 +214,7 @@ export async function rejectPlatformRequest(id: string, token: string, reason?: 
     body: JSON.stringify({ reason }),
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Failed to reject request');
+  if (!res.ok || !data.success) throw new Error(data.error || 'Failed to reject request');
   return data;
 }
 
@@ -260,5 +319,3 @@ export async function fetchEmergencyRequests() {
     return [];
   }
 }
-
-

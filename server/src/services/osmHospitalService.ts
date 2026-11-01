@@ -86,6 +86,14 @@ interface CacheEntry {
 const cache = new Map<string, CacheEntry>();
 const CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
+/**
+ * Clears the in-memory hospital discovery cache.
+ * Called when hospital access requests are approved or rejected, or capacity is modified.
+ */
+export function clearHospitalCache(): void {
+  cache.clear();
+}
+
 // Priority list of Overpass API mirrors (fastest first)
 const OVERPASS_ENDPOINTS = [
   process.env.OVERPASS_API_URL,
@@ -855,6 +863,9 @@ function deduplicateHospitals(hospitals: NormalizedHospital[]): NormalizedHospit
 async function getDbHospitals(lat: number, lng: number): Promise<NormalizedHospital[]> {
   try {
     const dbHospitals = await prisma.hospital.findMany({
+      where: {
+        verificationStatus: { in: ['VERIFIED', 'APPROVED'] },
+      },
       include: {
         beds: true,
         staff: true,
