@@ -2,8 +2,8 @@ import { useState } from 'react';
 import type { FC, FormEvent } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import surgeWatchLogo from '../assets/Surge_watch.png';
 import {
-  Shield,
   Lock,
   Mail,
   Building,
@@ -12,7 +12,9 @@ import {
   ArrowLeft,
   CheckCircle2,
   Sparkles,
-  AlertCircle
+  AlertCircle,
+  Loader2,
+  Clock
 } from 'lucide-react';
 
 export const HospitalAdminAuthPage: FC = () => {
@@ -33,6 +35,14 @@ export const HospitalAdminAuthPage: FC = () => {
   const [applicantName, setApplicantName] = useState('');
   const [applicantDesignation, setApplicantDesignation] = useState('');
   const [requestSubmitted, setRequestSubmitted] = useState(false);
+  const [requestError, setRequestError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submittedDetails, setSubmittedDetails] = useState<{
+    hospitalName: string;
+    regNumber: string;
+    area: string;
+    officialEmail: string;
+  } | null>(null);
 
   const { loginAdmin, submitHospitalAccessRequest, loginDemoUser } = useAuth();
   const navigate = useNavigate();
@@ -47,7 +57,7 @@ export const HospitalAdminAuthPage: FC = () => {
       return;
     }
 
-    if (email.toLowerCase().includes('superadmin')) {
+    if (res.user?.role === 'PLATFORM_ADMIN' || email.toLowerCase().includes('superadmin')) {
       navigate('/platform/dashboard');
     } else {
       navigate('/admin/dashboard');
@@ -56,26 +66,61 @@ export const HospitalAdminAuthPage: FC = () => {
 
   const handleRequestSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    await submitHospitalAccessRequest({
-      hospitalName: hospName,
-      hospitalAddress: hospAddress,
-      area,
-      officialEmail,
-      emergencyPhone,
-      regNumber,
-      applicantName,
-      applicantDesignation,
-    });
-    setRequestSubmitted(true);
+    setRequestError(null);
+    setIsSubmitting(true);
+
+    try {
+      const res = await submitHospitalAccessRequest({
+        hospitalName: hospName.trim(),
+        hospitalAddress: hospAddress.trim(),
+        area: area.trim(),
+        officialEmail: officialEmail.trim(),
+        emergencyPhone: emergencyPhone.trim(),
+        regNumber: regNumber.trim(),
+        applicantName: applicantName.trim(),
+        applicantDesignation: applicantDesignation.trim(),
+      });
+
+      if (!res.success) {
+        setRequestError(res.error || 'Failed to submit hospital registration request.');
+        setIsSubmitting(false);
+        return;
+      }
+
+      setSubmittedDetails({
+        hospitalName: hospName.trim(),
+        regNumber: regNumber.trim(),
+        area: area.trim(),
+        officialEmail: officialEmail.trim(),
+      });
+      setRequestSubmitted(true);
+    } catch (err: any) {
+      setRequestError(err.message || 'An unexpected error occurred during submission.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleDemoHosp = (hospitalId: 'hosp-victoria' | 'hosp-manipal-old-airport') => {
-    loginDemoUser('HOSPITAL_ADMIN', hospitalId);
+  const resetRequestForm = () => {
+    setHospName('');
+    setHospAddress('');
+    setArea('');
+    setOfficialEmail('');
+    setEmergencyPhone('');
+    setRegNumber('');
+    setApplicantName('');
+    setApplicantDesignation('');
+    setRequestError(null);
+    setRequestSubmitted(false);
+  };
+
+  const handleDemoHosp = async (hospitalId: 'hosp-victoria' | 'hosp-manipal-old-airport') => {
+    await loginDemoUser('HOSPITAL_ADMIN', hospitalId);
     navigate('/admin/dashboard');
   };
 
-  const handleDemoPlatform = () => {
-    loginDemoUser('PLATFORM_ADMIN');
+  const handleDemoPlatform = async () => {
+    await loginDemoUser('PLATFORM_ADMIN');
     navigate('/platform/dashboard');
   };
 
@@ -95,8 +140,8 @@ export const HospitalAdminAuthPage: FC = () => {
       <div className="sm:mx-auto sm:w-full sm:max-w-xl px-4">
         {/* Brand Banner */}
         <div className="text-center space-y-2 mb-6">
-          <div className="w-12 h-12 rounded-xl bg-slate-800 text-sky-400 mx-auto flex items-center justify-center font-bold border border-slate-700 shadow-md">
-            <Shield className="w-6 h-6 text-sky-400" />
+          <div className="w-14 h-14 rounded-2xl bg-slate-900 border border-slate-700 overflow-hidden mx-auto flex items-center justify-center p-1 shadow-md">
+            <img src={surgeWatchLogo} alt="SurgeWatch Logo" className="w-full h-full object-contain" />
           </div>
           <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
             SurgeWatch Healthcare Portal
@@ -216,7 +261,7 @@ export const HospitalAdminAuthPage: FC = () => {
                 <button
                   type="button"
                   onClick={() => handleDemoHosp('hosp-victoria')}
-                  className="p-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-xl text-left transition-colors"
+                  className="p-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-xl text-left transition-colors cursor-pointer"
                 >
                   <span className="font-bold text-sky-400 block">Victoria Hospital Admin</span>
                   <span className="text-[10px] text-slate-400">Government Level 1 Trauma</span>
@@ -224,7 +269,7 @@ export const HospitalAdminAuthPage: FC = () => {
                 <button
                   type="button"
                   onClick={() => handleDemoHosp('hosp-manipal-old-airport')}
-                  className="p-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-xl text-left transition-colors"
+                  className="p-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-xl text-left transition-colors cursor-pointer"
                 >
                   <span className="font-bold text-emerald-400 block">Manipal Hospital Admin</span>
                   <span className="text-[10px] text-slate-400">Old Airport Road Hub</span>
@@ -244,25 +289,70 @@ export const HospitalAdminAuthPage: FC = () => {
               </p>
             </div>
 
+            {requestError && (
+              <div className="p-3 bg-red-950/50 border border-red-800 text-red-300 rounded-lg text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0 text-red-400" />
+                <span>{requestError}</span>
+              </div>
+            )}
+
             {requestSubmitted ? (
               <div className="text-center py-8 space-y-4">
                 <div className="w-14 h-14 rounded-full bg-emerald-950 border border-emerald-500/40 text-emerald-400 mx-auto flex items-center justify-center">
                   <CheckCircle2 className="w-8 h-8" />
                 </div>
-                <h4 className="text-xl font-bold text-white">Access Request Registered</h4>
-                <p className="text-xs text-slate-300 max-w-md mx-auto leading-relaxed">
-                  Your application for <strong className="text-white">{hospName}</strong> (KPME Reg: <strong className="text-white">{regNumber}</strong>) has been queued for verification by SurgeWatch Platform Operations. An activation credential will be dispatched upon authorization.
+                <div>
+                  <h4 className="text-xl font-bold text-white">Registration Request Submitted</h4>
+                  <div className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-950 border border-amber-600 text-amber-300 text-xs font-bold">
+                    <Clock className="w-3.5 h-3.5 animate-spin" />
+                    <span>Status: Pending Approval</span>
+                  </div>
+                </div>
+
+                <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 text-xs text-left text-slate-300 space-y-2 max-w-md mx-auto">
+                  <div className="flex justify-between border-b border-slate-800 pb-1.5">
+                    <span className="text-slate-400 font-semibold">Hospital Name:</span>
+                    <strong className="text-white">{submittedDetails?.hospitalName || hospName}</strong>
+                  </div>
+                  <div className="flex justify-between border-b border-slate-800 pb-1.5">
+                    <span className="text-slate-400 font-semibold">KPME License:</span>
+                    <strong className="font-mono text-purple-300">{submittedDetails?.regNumber || regNumber}</strong>
+                  </div>
+                  <div className="flex justify-between border-b border-slate-800 pb-1.5">
+                    <span className="text-slate-400 font-semibold">Area / Locality:</span>
+                    <span className="text-white">{submittedDetails?.area || area}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400 font-semibold">Official Email:</span>
+                    <span className="text-sky-300">{submittedDetails?.officialEmail || officialEmail}</span>
+                  </div>
+                </div>
+
+                <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
+                  Your application has been stored in the database with <strong className="text-amber-400 font-semibold">Pending</strong> approval status. The Platform Administrator has received an automated alert to review and approve your registration.
                 </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setRequestSubmitted(false);
-                    setTab('LOGIN');
-                  }}
-                  className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold"
-                >
-                  Return to Admin Login
-                </button>
+
+                <div className="flex justify-center gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      resetRequestForm();
+                      setTab('LOGIN');
+                    }}
+                    className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold cursor-pointer"
+                  >
+                    Go to Admin Login
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      resetRequestForm();
+                    }}
+                    className="px-5 py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold cursor-pointer"
+                  >
+                    Register Another Hospital
+                  </button>
+                </div>
               </div>
             ) : (
               <form onSubmit={handleRequestSubmit} className="space-y-4">
@@ -386,10 +476,20 @@ export const HospitalAdminAuthPage: FC = () => {
 
                 <button
                   type="submit"
-                  className="w-full inline-flex items-center justify-center gap-2 py-3 px-4 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-sm font-bold shadow-sm transition-all cursor-pointer"
+                  disabled={isSubmitting}
+                  className="w-full inline-flex items-center justify-center gap-2 py-3 px-4 bg-sky-600 hover:bg-sky-500 disabled:opacity-60 text-white rounded-xl text-sm font-bold shadow-sm transition-all cursor-pointer"
                 >
-                  <FileText className="w-4 h-4" />
-                  <span>Submit Institutional Verification Dossier</span>
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Submitting Registration Dossier...</span>
+                    </>
+                  ) : (
+                    <>
+                      <FileText className="w-4 h-4" />
+                      <span>Submit Institutional Registration</span>
+                    </>
+                  )}
                 </button>
               </form>
             )}
@@ -409,6 +509,13 @@ export const HospitalAdminAuthPage: FC = () => {
                 Review pending hospital verification requests, inspect platform-wide stale data thresholds, and monitor immutable audit trails.
               </p>
             </div>
+
+            {loginError && (
+              <div className="p-3 bg-red-950/50 border border-red-800 text-red-300 rounded-lg text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0 text-red-400" />
+                <span>{loginError}</span>
+              </div>
+            )}
 
             <form onSubmit={handleLoginSubmit} className="space-y-4">
               <div>

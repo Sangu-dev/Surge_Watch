@@ -62,7 +62,7 @@ export function App() {
           <Route
             path="/admin/dashboard"
             element={
-              <ProtectedRoute allowedRoles={['HOSPITAL_ADMIN']}>
+              <ProtectedRoute allowedRoles={['HOSPITAL_ADMIN', 'PLATFORM_ADMIN']}>
                 <HospitalDashboardPage />
               </ProtectedRoute>
             }

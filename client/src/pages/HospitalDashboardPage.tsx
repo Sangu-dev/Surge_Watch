@@ -17,7 +17,8 @@ import {
   AlertCircle,
   Database,
   RefreshCw,
-  Activity
+  Activity,
+  ShieldAlert
 } from 'lucide-react';
 import { FreshnessIndicator } from '../components/FreshnessIndicator';
 import {
@@ -315,6 +316,15 @@ export const HospitalDashboardPage: FC = () => {
           </div>
 
           <div className="flex items-center gap-2">
+            {user?.role === 'PLATFORM_ADMIN' && (
+              <button
+                onClick={() => navigate('/platform/dashboard')}
+                className="inline-flex items-center gap-1.5 px-3 py-2 bg-purple-900/70 hover:bg-purple-800 text-purple-200 border border-purple-700/80 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+              >
+                <ShieldAlert className="w-3.5 h-3.5 text-purple-400" />
+                <span className="hidden sm:inline">Platform Approvals</span>
+              </button>
+            )}
             <button
               onClick={handleLogout}
               className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg text-xs font-semibold transition-colors cursor-pointer"

@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { submitHospitalRegistration, loginAdminApi } from '../services/api';
 
 export type UserRole = 'PATIENT' | 'HOSPITAL_ADMIN' | 'PLATFORM_ADMIN';
 
@@ -33,11 +34,11 @@ interface AuthContextType {
   isLoading: boolean;
   loginPatient: (email: string, pass: string) => Promise<{ success: boolean; error?: string }>;
   registerPatient: (name: string, email: string, pass: string, phone?: string) => Promise<{ success: boolean; error?: string }>;
-  loginAdmin: (email: string, pass: string) => Promise<{ success: boolean; error?: string }>;
-  submitHospitalAccessRequest: (data: Omit<HospitalAccessApplication, 'id' | 'status' | 'submittedAt'>) => Promise<{ success: boolean; error?: string }>;
+  loginAdmin: (email: string, pass: string) => Promise<{ success: boolean; error?: string; user?: AuthUser }>;
+  submitHospitalAccessRequest: (data: Omit<HospitalAccessApplication, 'id' | 'status' | 'submittedAt'>) => Promise<{ success: boolean; error?: string; message?: string; applicationId?: string }>;
   logout: () => void;
   // Demo helper accounts for easy testing
-  loginDemoUser: (role: UserRole, hospitalId?: string) => void;
+  loginDemoUser: (role: UserRole, hospitalId?: string) => Promise<void> | void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -50,16 +51,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Restore session from localStorage on initial load
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        setUser(JSON.parse(saved));
+    const restoreSession = async () => {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+          const parsed: AuthUser = JSON.parse(saved);
+          // If stored token is an outdated mock token, refresh it with real backend JWT
+          if (parsed.token && (parsed.token.startsWith('jwt-platform') || parsed.token.startsWith('demo-'))) {
+            try {
+              const res = await loginAdminApi(parsed.email, undefined, true);
+              if (res?.token && res?.user) {
+                const refreshed = { ...res.user, token: res.token };
+                setUser(refreshed);
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(refreshed));
+                return;
+              }
+            } catch {
+              // Ignore and keep parsed session
+            }
+          }
+          setUser(parsed);
+        }
+      } catch (e) {
+        console.error('Failed to restore auth session:', e);
+      } finally {
+        setIsLoading(false);
       }
-    } catch (e) {
-      console.error('Failed to restore auth session:', e);
-    } finally {
-      setIsLoading(false);
-    }
+    };
+
+    restoreSession();
   }, []);
 
   const saveUserSession = (newUser: AuthUser | null) => {
@@ -72,7 +92,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const loginPatient = async (email: string, _pass: string) => {
-    // Stage 2 client validation & demo authentication
     if (!email || !email.includes('@')) {
       return { success: false, error: 'Please provide a valid email address.' };
     }
@@ -104,79 +123,152 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return { success: true };
   };
 
-  const loginAdmin = async (email: string, _pass: string) => {
+  const loginAdmin = async (email: string, pass: string): Promise<{ success: boolean; error?: string; user?: AuthUser }> => {
     const cleanEmail = email.toLowerCase().trim();
 
-    // Platform Super Admin
-    if (cleanEmail === 'superadmin@surgewatch.in' || cleanEmail.includes('superadmin')) {
-      const adminUser: AuthUser = {
-        id: 'plat-admin-1',
-        email: cleanEmail,
-        fullName: 'SurgeWatch Platform Operations Lead',
-        role: 'PLATFORM_ADMIN',
-        token: 'jwt-platform-admin-token-' + Date.now(),
-      };
-      saveUserSession(adminUser);
-      return { success: true };
-    }
+    try {
+      const res = await loginAdminApi(cleanEmail, pass, !pass);
+      if (res && res.token && res.user) {
+        const adminUser: AuthUser = {
+          ...res.user,
+          token: res.token,
+        };
+        saveUserSession(adminUser);
+        return { success: true, user: adminUser };
+      }
+      return { success: false, error: 'Authentication failed.' };
+    } catch (err: any) {
+      console.warn('API loginAdmin failed, attempting demo account resolution:', err);
 
-    // Victoria Hospital Admin
-    if (cleanEmail.includes('victoria')) {
+      // Resilient fallback for offline mode
+      if (cleanEmail === 'superadmin@surgewatch.in' || cleanEmail.includes('superadmin')) {
+        const adminUser: AuthUser = {
+          id: 'plat-admin-1',
+          email: cleanEmail,
+          fullName: 'SurgeWatch Platform Operations Lead',
+          role: 'PLATFORM_ADMIN',
+          token: 'jwt-platform-admin-token-' + Date.now(),
+        };
+        saveUserSession(adminUser);
+        return { success: true, user: adminUser };
+      }
+
+      if (cleanEmail.includes('victoria')) {
+        const hospUser: AuthUser = {
+          id: 'admin-victoria-1',
+          email: cleanEmail,
+          fullName: 'Dr. C. R. Shivananda (Chief Medical Officer)',
+          role: 'HOSPITAL_ADMIN',
+          hospitalId: 'hosp-victoria',
+          hospitalName: 'Victoria Hospital & Trauma Care Centre',
+          token: 'jwt-hosp-admin-token-' + Date.now(),
+        };
+        saveUserSession(hospUser);
+        return { success: true, user: hospUser };
+      }
+
       const hospUser: AuthUser = {
-        id: 'admin-victoria-1',
+        id: 'admin-manipal-1',
         email: cleanEmail,
-        fullName: 'Dr. C. R. Shivananda (Chief Medical Officer)',
+        fullName: 'Dr. L. K. Mahesh (Emergency Services Lead)',
         role: 'HOSPITAL_ADMIN',
-        hospitalId: 'hosp-victoria',
-        hospitalName: 'Victoria Hospital & Trauma Care Centre',
+        hospitalId: 'hosp-manipal-old-airport',
+        hospitalName: 'Manipal Hospital (Old Airport Road)',
         token: 'jwt-hosp-admin-token-' + Date.now(),
       };
       saveUserSession(hospUser);
-      return { success: true };
+      return { success: true, user: hospUser };
     }
-
-    // Default to Manipal Hospital Admin
-    const hospUser: AuthUser = {
-      id: 'admin-manipal-1',
-      email: cleanEmail,
-      fullName: 'Dr. L. K. Mahesh (Emergency Services Lead)',
-      role: 'HOSPITAL_ADMIN',
-      hospitalId: 'hosp-manipal-old-airport',
-      hospitalName: 'Manipal Hospital (Old Airport Road)',
-      token: 'jwt-hosp-admin-token-' + Date.now(),
-    };
-    saveUserSession(hospUser);
-    return { success: true };
   };
 
   const submitHospitalAccessRequest = async (
     data: Omit<HospitalAccessApplication, 'id' | 'status' | 'submittedAt'>
-  ) => {
-    const newApp: HospitalAccessApplication = {
-      ...data,
-      id: 'req-' + Date.now(),
-      status: 'PENDING',
-      submittedAt: new Date().toISOString(),
-    };
+  ): Promise<{ success: boolean; error?: string; message?: string; applicationId?: string }> => {
+    try {
+      // Commit directly to SQLite database via backend API
+      const res = await submitHospitalRegistration(data);
 
-    // Store in localStorage for platform admin review demo
-    const existing = JSON.parse(localStorage.getItem('surgewatch_pending_requests') || '[]');
-    existing.push(newApp);
-    localStorage.setItem('surgewatch_pending_requests', JSON.stringify(existing));
+      const newApp: HospitalAccessApplication = {
+        ...data,
+        id: res.applicationId || 'req-' + Date.now(),
+        status: 'PENDING',
+        submittedAt: new Date().toISOString(),
+      };
 
-    return { success: true };
+      // Also cache in localStorage for offline availability
+      const existing = JSON.parse(localStorage.getItem('surgewatch_pending_requests') || '[]');
+      existing.unshift(newApp);
+      localStorage.setItem('surgewatch_pending_requests', JSON.stringify(existing));
+
+      return {
+        success: true,
+        message: res.message || 'Hospital registration request successfully submitted.',
+        applicationId: res.applicationId,
+      };
+    } catch (err: any) {
+      console.warn('Backend hospital registration failed, saving locally:', err);
+      // Fallback
+      const newApp: HospitalAccessApplication = {
+        ...data,
+        id: 'req-' + Date.now(),
+        status: 'PENDING',
+        submittedAt: new Date().toISOString(),
+      };
+      const existing = JSON.parse(localStorage.getItem('surgewatch_pending_requests') || '[]');
+      existing.unshift(newApp);
+      localStorage.setItem('surgewatch_pending_requests', JSON.stringify(existing));
+
+      return {
+        success: true,
+        message: 'Hospital registration saved locally (offline mode).',
+        applicationId: newApp.id,
+      };
+    }
   };
 
-  const loginDemoUser = (role: UserRole, hospitalId?: string) => {
+  const loginDemoUser = async (role: UserRole, hospitalId?: string) => {
+    let email = 'superadmin@surgewatch.in';
+    let pass = 'SuperAdmin@123';
+
+    if (role === 'HOSPITAL_ADMIN') {
+      const isVictoria = hospitalId === 'hosp-victoria';
+      email = isVictoria ? 'admin@victoria.gov.in' : 'admin@manipal.org';
+      pass = isVictoria ? 'VictoriaAdmin@123' : 'ManipalAdmin@123';
+    } else if (role === 'PATIENT') {
+      saveUserSession({
+        id: 'patient-demo-1',
+        email: 'patient@example.com',
+        fullName: 'Arun Varma (Patient)',
+        role: 'PATIENT',
+        phone: '+91 98450 12345',
+        token: 'demo-patient-token',
+      });
+      return;
+    }
+
+    try {
+      const res = await loginAdminApi(email, pass, true);
+      if (res?.token && res?.user) {
+        saveUserSession({
+          ...res.user,
+          token: res.token,
+        });
+        return;
+      }
+    } catch (e) {
+      console.warn('Demo login failed with backend API, using local fallback:', e);
+    }
+
+    // Local fallback if backend is offline
     if (role === 'PLATFORM_ADMIN') {
       saveUserSession({
         id: 'plat-admin-1',
         email: 'superadmin@surgewatch.in',
-        fullName: 'SurgeWatch Platform Auditor',
+        fullName: 'SurgeWatch Platform Operations Lead',
         role: 'PLATFORM_ADMIN',
         token: 'demo-platform-token',
       });
-    } else if (role === 'HOSPITAL_ADMIN') {
+    } else {
       const isVictoria = hospitalId === 'hosp-victoria';
       saveUserSession({
         id: isVictoria ? 'admin-victoria-1' : 'admin-manipal-1',
@@ -190,15 +282,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           ? 'Victoria Hospital & Trauma Care Centre'
           : 'Manipal Hospital (Old Airport Road)',
         token: 'demo-hosp-token',
-      });
-    } else {
-      saveUserSession({
-        id: 'patient-demo-1',
-        email: 'patient@bengaluru.in',
-        fullName: 'Arun Varma (Patient)',
-        role: 'PATIENT',
-        phone: '+91 98450 12345',
-        token: 'demo-patient-token',
       });
     }
   };

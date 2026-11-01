@@ -2,25 +2,20 @@ import express from 'express';
 import http from 'http';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { Server as SocketIOServer } from 'socket.io';
 import authRoutes from './routes/authRoutes.js';
 import hospitalRoutes from './routes/hospitalRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import platformRoutes from './routes/platformRoutes.js';
 import locationRoutes from './routes/locationRoutes.js';
 import emergencyRoutes from './routes/emergencyRoutes.js';
+import { initSocketIO, getIO } from './socket.js';
 
 dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
 
-export const io = new SocketIOServer(server, {
-  cors: {
-    origin: '*',
-    methods: ['GET', 'POST', 'PUT', 'PATCH'],
-  },
-});
+export const io = initSocketIO(server);
 
 app.use(cors());
 app.use(express.json());
@@ -112,10 +107,13 @@ app.get('/api/docs', (_req, res) => {
 
 // Mount modular route trees (supports both /api/v1/ and /api/ prefixes)
 app.use('/api/v1/auth', authRoutes);
+app.use('/api/auth', authRoutes);
 app.use('/api/v1/hospitals', hospitalRoutes);
 app.use('/api/hospitals', hospitalRoutes);
 app.use('/api/v1/admin', adminRoutes);
+app.use('/api/admin', adminRoutes);
 app.use('/api/v1/platform', platformRoutes);
+app.use('/api/platform', platformRoutes);
 app.use('/api/v1/location', locationRoutes);
 app.use('/api/location', locationRoutes);
 app.use('/api/v1', emergencyRoutes);
@@ -180,4 +178,4 @@ server.listen(PORT, () => {
   console.log(`=================================================`);
 });
 
-export { app, server };
+export { app, server, getIO };
