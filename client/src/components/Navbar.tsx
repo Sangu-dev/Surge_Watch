@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { FC } from 'react';
-import { Activity, Menu, X, Shield, ArrowRight } from 'lucide-react';
+import { Menu, X, Shield, ArrowRight } from 'lucide-react';
+import surgeWatchLogo from '../assets/Surge_watch.png';
 
 interface NavbarProps {
   onNavigateToSearch?: () => void;
@@ -25,8 +26,8 @@ export const Navbar: FC<NavbarProps> = ({
               href="/"
               className="group flex items-center gap-3 focus:outline-hidden focus:ring-2 focus:ring-sky-500 rounded-lg p-1"
             >
-              <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-slate-900 text-sky-400 flex items-center justify-center shadow-md group-hover:bg-slate-800 transition-colors">
-                <Activity className="w-6 h-6 text-sky-400 group-hover:scale-110 transition-transform" />
+              <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-slate-900 overflow-hidden flex items-center justify-center shadow-md group-hover:scale-105 transition-transform p-1">
+                <img src={surgeWatchLogo} alt="SurgeWatch Logo" className="w-full h-full object-contain" />
               </div>
               <div className="flex flex-col text-left">
                 <div className="flex items-center gap-1.5">

@@ -1,5 +1,6 @@
 import type { FC } from 'react';
-import { Activity, ShieldCheck, MapPin, AlertTriangle } from 'lucide-react';
+import { ShieldCheck, MapPin, AlertTriangle } from 'lucide-react';
+import surgeWatchLogo from '../assets/Surge_watch.png';
 
 export const Footer: FC = () => {
   return (
@@ -10,8 +11,8 @@ export const Footer: FC = () => {
           {/* Brand Info */}
           <div className="space-y-4 md:col-span-1">
             <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-lg bg-sky-500 text-slate-950 flex items-center justify-center font-bold">
-                <Activity className="w-5 h-5 text-slate-950" />
+              <div className="w-9 h-9 rounded-lg bg-slate-900 border border-slate-800 overflow-hidden flex items-center justify-center p-0.5 shadow-xs">
+                <img src={surgeWatchLogo} alt="SurgeWatch Logo" className="w-full h-full object-contain" />
               </div>
               <span className="font-extrabold text-xl tracking-tight text-white font-['Plus_Jakarta_Sans']">
                 Surge<span className="text-sky-400">Watch</span>
