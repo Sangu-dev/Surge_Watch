@@ -48,12 +48,13 @@ export async function fetchNearbyHospitals(
   lng: number,
   radius: number = 5,
   service: string = 'ALL',
-  sortBy: string = 'distance'
+  sortBy: string = 'distance',
+  signal?: AbortSignal
 ) {
   try {
     // 1. Try dedicated nearby hospital discovery endpoint (OpenStreetMap + Live Registry)
-    const nearbyUrl = `${API_BASE}/hospitals/nearby?lat=${lat}&lon=${lng}&radiusKm=${radius}`;
-    const res = await fetch(nearbyUrl);
+    const nearbyUrl = `${API_BASE}/hospitals/nearby?lat=${lat}&lon=${lng}&radius_km=${radius}&radiusKm=${radius}&radius=${radius}`;
+    const res = await fetch(nearbyUrl, { signal });
     if (res.ok) {
       const json = await res.json();
       return {
@@ -63,8 +64,8 @@ export async function fetchNearbyHospitals(
     }
 
     // 2. Fallback to /search endpoint
-    const searchUrl = `${API_BASE}/hospitals/search?lat=${lat}&lng=${lng}&radius=${radius}&service=${service}&sortBy=${sortBy}`;
-    const searchRes = await fetch(searchUrl);
+    const searchUrl = `${API_BASE}/hospitals/search?lat=${lat}&lng=${lng}&radius_km=${radius}&radius=${radius}&service=${service}&sortBy=${sortBy}`;
+    const searchRes = await fetch(searchUrl, { signal });
     if (searchRes.ok) {
       const searchJson = await searchRes.json();
       return {
@@ -74,7 +75,10 @@ export async function fetchNearbyHospitals(
     }
 
     throw new Error(`HTTP ${res.status}`);
-  } catch (err) {
+  } catch (err: any) {
+    if (err.name === 'AbortError') {
+      throw err;
+    }
     console.warn('[API Client] Backend unreachable, using client offline calculation:', err);
     return null;
   }
@@ -106,6 +110,21 @@ export async function reverseGeocodeLocation(lat: number, lng: number) {
     return data.data;
   } catch (err) {
     console.warn('[API Client] Reverse geocoding failed, using local display:', err);
+    return null;
+  }
+}
+
+export async function geocodeLocationQuery(query: string): Promise<{ latitude: number; longitude: number } | null> {
+  try {
+    const res = await fetch(`${API_BASE}/location/geocode?q=${encodeURIComponent(query)}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (data.success && data.data && typeof data.data.latitude === 'number' && typeof data.data.longitude === 'number') {
+      return { latitude: data.data.latitude, longitude: data.data.longitude };
+    }
+    return null;
+  } catch (err) {
+    console.warn('[API Client] Forward geocoding failed, using local landmark fallback:', err);
     return null;
   }
 }
