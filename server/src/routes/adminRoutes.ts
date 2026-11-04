@@ -5,20 +5,20 @@ import { requireRole, requireHospitalOwnership } from '../middleware/rbacMiddlew
 
 const router = Router();
 
-// Hospital Administrator updates their hospital's resources
+// Hospital Administrator updates their hospital's resources (Protected & Ownership enforced)
 router.put(
   '/hospitals/:hospitalId/resources',
   requireAuth,
-  requireRole(['HOSPITAL_ADMIN', 'PLATFORM_ADMIN']),
+  requireRole(['HOSPITAL_ADMIN', 'PLATFORM_ADMIN', 'MASTER_ADMIN']),
   requireHospitalOwnership,
   updateHospitalResources
 );
 
-// Hospital Administrator fetches their hospital's audit log
+// Hospital Administrator fetches their hospital's audit log (Protected & Ownership enforced)
 router.get(
   '/hospitals/:hospitalId/audits',
   requireAuth,
-  requireRole(['HOSPITAL_ADMIN', 'PLATFORM_ADMIN']),
+  requireRole(['HOSPITAL_ADMIN', 'PLATFORM_ADMIN', 'MASTER_ADMIN']),
   requireHospitalOwnership,
   getHospitalAuditLogs
 );

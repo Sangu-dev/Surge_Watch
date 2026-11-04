@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { prisma } from '../prisma.js';
 import { io } from '../index.js';
 import { calculateHaversineDistance } from '../utils/spatial.js';
+import { AuthenticatedRequest } from '../middleware/authMiddleware.js';
 
 /**
  * Lists all ambulances in the system with vehicle identifiers, hospital details, and statuses
@@ -130,6 +131,26 @@ export const updateAmbulanceStatus = async (req: Request, res: Response): Promis
     if (!existing) {
       res.status(404).json({ success: false, error: 'Ambulance record not found.' });
       return;
+    }
+
+    // Verify hospital ownership for HOSPITAL_ADMIN
+    const authReq = req as AuthenticatedRequest;
+    if (authReq.user && authReq.user.role === 'HOSPITAL_ADMIN') {
+      const membership = await prisma.hospitalMembership.findFirst({
+        where: {
+          userId: authReq.user.id,
+          hospitalId: existing.hospitalId,
+          isActive: true,
+        },
+      });
+
+      if (!membership) {
+        res.status(403).json({
+          success: false,
+          error: 'Forbidden: You are only authorized to manage ambulances for your assigned hospital facility.',
+        });
+        return;
+      }
     }
 
     const updated = await prisma.ambulanceAvailability.update({
@@ -337,6 +358,34 @@ export const releaseEmergencyDispatch = async (req: Request, res: Response): Pro
       return;
     }
 
+    // Verify hospital ownership for HOSPITAL_ADMIN
+    const authReq = req as AuthenticatedRequest;
+    if (authReq.user && authReq.user.role === 'HOSPITAL_ADMIN') {
+      if (!emergency.hospitalId) {
+        res.status(403).json({
+          success: false,
+          error: 'Forbidden: Emergency request is not assigned to your hospital facility.',
+        });
+        return;
+      }
+
+      const membership = await prisma.hospitalMembership.findFirst({
+        where: {
+          userId: authReq.user.id,
+          hospitalId: emergency.hospitalId,
+          isActive: true,
+        },
+      });
+
+      if (!membership) {
+        res.status(403).json({
+          success: false,
+          error: 'Forbidden: You are only authorized to release emergency dispatches for your assigned hospital facility.',
+        });
+        return;
+      }
+    }
+
     // Complete the request
     const updatedEmergency = await prisma.emergencyRequest.update({
       where: { id },
@@ -404,9 +453,30 @@ export const releaseEmergencyDispatch = async (req: Request, res: Response): Pro
  * Lists emergency requests
  * GET /api/v1/emergency/requests
  */
-export const getEmergencyRequests = async (_req: Request, res: Response): Promise<void> => {
+export const getEmergencyRequests = async (req: Request, res: Response): Promise<void> => {
   try {
+    const authReq = req as AuthenticatedRequest;
+    const whereClause: any = {};
+
+    // For HOSPITAL_ADMIN, restrict listing to their assigned facility
+    if (authReq.user && authReq.user.role === 'HOSPITAL_ADMIN') {
+      const membership = await prisma.hospitalMembership.findFirst({
+        where: { userId: authReq.user.id, isActive: true },
+      });
+
+      if (!membership) {
+        res.status(403).json({
+          success: false,
+          error: 'Forbidden: Inactive or missing hospital membership.',
+        });
+        return;
+      }
+
+      whereClause.hospitalId = membership.hospitalId;
+    }
+
     const requests = await prisma.emergencyRequest.findMany({
+      where: whereClause,
       include: {
         hospital: {
           select: { id: true, name: true, emergencyContactPhone: true },

@@ -1,9 +1,12 @@
 import { Request, Response } from 'express';
+import bcrypt from 'bcryptjs';
 import { prisma } from '../prisma.js';
 import { computeDataFreshness } from '../utils/freshness.js';
 import { getIO } from '../socket.js';
 import { clearHospitalCache } from '../services/osmHospitalService.js';
 import { resolveCoordinatesForArea } from '../services/locationService.js';
+import { generateRandomToken, hashToken } from '../utils/token.js';
+import { isSmtpConfigured, sendHospitalInvitationEmail } from '../services/emailService.js';
 
 export const listAccessRequests = async (_req: Request, res: Response): Promise<void> => {
   try {
@@ -180,9 +183,41 @@ export const approveAccessRequest = async (req: Request, res: Response): Promise
               userId: request.userId,
               hospitalId,
               assignedRole: 'ADMIN',
+              isActive: true,
             },
           });
         }
+      }
+    }
+
+    // If SMTP is unconfigured in production, do not claim successful email dispatch
+    const isProduction = process.env.NODE_ENV === 'production';
+    if (isProduction && !isSmtpConfigured()) {
+      res.status(503).json({
+        success: false,
+        error: 'Email delivery service is unconfigured. Hospital activation email cannot be dispatched in production.',
+      });
+      return;
+    }
+
+    // Generate secure one-time activation token for the hospital applicant
+    let activationToken: string | undefined;
+    if (request.userId) {
+      const rawToken = generateRandomToken(32);
+      const tokenHash = hashToken(rawToken);
+      await prisma.passwordResetToken.create({
+        data: {
+          userId: request.userId,
+          tokenHash,
+          purpose: 'HOSPITAL_INVITATION',
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days validity
+          ipAddress: req.ip,
+          userAgent: req.headers['user-agent'] || null,
+        },
+      });
+      // In production, never return raw tokens in API responses
+      if (!isProduction) {
+        activationToken = rawToken;
       }
     }
 
@@ -207,6 +242,7 @@ export const approveAccessRequest = async (req: Request, res: Response): Promise
     res.json({
       success: true,
       message: `Hospital access request for ${request.hospitalName} approved. Administrator credentials active and hospital verified.`,
+      ...(!isProduction && { activationToken }),
     });
   } catch (error) {
     console.error('Approve request error:', error);
@@ -342,5 +378,207 @@ export const getSystemFreshnessOverview = async (_req: Request, res: Response): 
   } catch (error) {
     console.error('System freshness error:', error);
     res.status(500).json({ success: false, error: 'Failed to compute freshness overview.' });
+  }
+};
+
+/**
+ * Invites / provisions a hospital administrator for a specific hospital facility
+ * POST /api/v1/platform/hospitals/:hospitalId/invite-admin
+ */
+export const inviteHospitalAdmin = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const hospitalId = String(req.params.hospitalId);
+    const { email, fullName, phone } = req.body || {};
+
+    if (!email || !email.includes('@')) {
+      res.status(400).json({ success: false, error: 'Valid administrator email is required.' });
+      return;
+    }
+
+    const hospital = await prisma.hospital.findUnique({
+      where: { id: hospitalId },
+    });
+
+    if (!hospital) {
+      res.status(404).json({ success: false, error: 'Hospital record not found.' });
+      return;
+    }
+
+    const cleanEmail = email.toLowerCase().trim();
+    let user = await prisma.user.findUnique({
+      where: { email: cleanEmail },
+    });
+
+    if (!user) {
+      const randomPassword = generateRandomToken(16);
+      const placeholderHash = await bcrypt.hash(randomPassword, 12);
+      user = await prisma.user.create({
+        data: {
+          email: cleanEmail,
+          fullName: fullName || `${hospital.name} Administrator`,
+          passwordHash: placeholderHash,
+          role: 'HOSPITAL_ADMIN',
+          phone,
+          isActive: true,
+        },
+      });
+    } else {
+      if (user.role === 'MASTER_ADMIN' || user.role === 'PLATFORM_ADMIN') {
+        res.status(400).json({
+          success: false,
+          error: 'Cannot reassign a platform administrator account as a hospital administrator.',
+        });
+        return;
+      }
+      if (user.role === 'PATIENT') {
+        if (!req.body.confirmRoleUpgrade) {
+          res.status(409).json({
+            success: false,
+            error:
+              'Account with this email is currently registered as a PATIENT. To avoid accidental promotion, pass confirmRoleUpgrade: true to authorize this role upgrade.',
+          });
+          return;
+        }
+        user = await prisma.user.update({
+          where: { id: user.id },
+          data: { role: 'HOSPITAL_ADMIN' },
+        });
+      }
+    }
+
+    // Ensure active HospitalMembership
+    const existingMembership = await prisma.hospitalMembership.findUnique({
+      where: {
+        userId_hospitalId: {
+          userId: user.id,
+          hospitalId,
+        },
+      },
+    });
+
+    if (existingMembership) {
+      if (!existingMembership.isActive) {
+        await prisma.hospitalMembership.update({
+          where: { id: existingMembership.id },
+          data: { isActive: true },
+        });
+      }
+    } else {
+      await prisma.hospitalMembership.create({
+        data: {
+          userId: user.id,
+          hospitalId,
+          assignedRole: 'ADMIN',
+          isActive: true,
+        },
+      });
+    }
+
+    const isProduction = process.env.NODE_ENV === 'production';
+
+    // In production, require configured email delivery before claiming successful invitation dispatch
+    if (isProduction && !isSmtpConfigured()) {
+      res.status(503).json({
+        success: false,
+        error: 'Email delivery service is unconfigured. Institutional administrator invitation cannot be dispatched in production.',
+      });
+      return;
+    }
+
+    // Generate secure invitation / activation token (valid 7 days)
+    const rawInvitationToken = generateRandomToken(32);
+    const tokenHash = hashToken(rawInvitationToken);
+    await prisma.passwordResetToken.create({
+      data: {
+        userId: user.id,
+        tokenHash,
+        purpose: 'HOSPITAL_INVITATION',
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'] || null,
+      },
+    });
+
+    const clientBaseUrl = process.env.CLIENT_URL || process.env.CLIENT_ORIGIN || 'http://localhost:5173';
+    const inviteUrl = `${clientBaseUrl}/admin/auth?token=${rawInvitationToken}&mode=activate`;
+
+    const emailResult = await sendHospitalInvitationEmail({
+      to: user.email,
+      fullName: user.fullName,
+      hospitalName: hospital.name,
+      invitationToken: rawInvitationToken,
+      inviteUrl,
+    });
+
+    if (isProduction && !emailResult.success) {
+      res.status(502).json({
+        success: false,
+        error: 'Failed to dispatch administrator invitation email via SMTP. Please verify mail server settings.',
+      });
+      return;
+    }
+
+    const responsePayload: any = {
+      success: true,
+      message: `Hospital administrator provisioned successfully for ${hospital.name}.`,
+      userId: user.id,
+      hospitalId,
+      hospitalName: hospital.name,
+    };
+
+    // In production, never return raw tokens in API responses
+    if (!isProduction) {
+      responsePayload.invitationToken = rawInvitationToken;
+    }
+
+    res.status(201).json(responsePayload);
+  } catch (error) {
+    console.error('Invite hospital admin error:', error);
+    res.status(500).json({ success: false, error: 'Failed to invite hospital administrator.' });
+  }
+};
+
+/**
+ * Toggles user active account status (Master / Platform Admin only)
+ * PATCH /api/v1/platform/users/:id/status
+ */
+export const toggleUserStatus = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = String(req.params.id);
+    const { isActive } = req.body || {};
+
+    if (typeof isActive !== 'boolean') {
+      res.status(400).json({ success: false, error: 'isActive must be a boolean.' });
+      return;
+    }
+
+    const targetUser = await prisma.user.findUnique({ where: { id: userId } });
+    if (!targetUser) {
+      res.status(404).json({ success: false, error: 'User not found.' });
+      return;
+    }
+
+    // If deactivating user, revoke all active sessions immediately
+    if (!isActive) {
+      await prisma.refreshToken.updateMany({
+        where: { userId, revokedAt: null },
+        data: { revokedAt: new Date(), revocationReason: 'ADMIN_DEACTIVATED' },
+      });
+    }
+
+    const updated = await prisma.user.update({
+      where: { id: userId },
+      data: { isActive },
+      select: { id: true, email: true, fullName: true, role: true, isActive: true },
+    });
+
+    res.json({
+      success: true,
+      message: `User ${updated.email} is now ${isActive ? 'active' : 'deactivated'}.`,
+      user: updated,
+    });
+  } catch (error) {
+    console.error('Toggle user status error:', error);
+    res.status(500).json({ success: false, error: 'Failed to update user status.' });
   }
 };

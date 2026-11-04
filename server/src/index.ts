@@ -9,16 +9,53 @@ import platformRoutes from './routes/platformRoutes.js';
 import locationRoutes from './routes/locationRoutes.js';
 import emergencyRoutes from './routes/emergencyRoutes.js';
 import { initSocketIO, getIO } from './socket.js';
+import { cookieParser } from './middleware/cookieMiddleware.js';
+import { isTrustedOrigin, csrfProtection } from './middleware/csrfMiddleware.js';
 
 dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
 
+// In production behind a reverse proxy (Render, Railway, Fly.io, etc.), trust the first proxy hop
+if (process.env.NODE_ENV === 'production' || process.env.TRUST_PROXY === 'true') {
+  app.set('trust proxy', 1);
+}
+
 export const io = initSocketIO(server);
 
-app.use(cors());
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin || isTrustedOrigin(origin)) {
+        callback(null, origin || true);
+      } else {
+        const err = new Error(`CORS policy violation: Access from origin '${origin}' is denied.`);
+        (err as any).status = 403;
+        callback(err);
+      }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  })
+);
+
+// Standard Browser Security Headers
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(self)');
+  if (process.env.NODE_ENV === 'production') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  next();
+});
+
+app.use(cookieParser);
 app.use(express.json());
+app.use(csrfProtection);
 
 // Root endpoint for browser visits and uptime monitors
 app.get('/', (_req, res) => {
@@ -138,6 +175,13 @@ app.use('/api', emergencyRoutes);
 
 // Global Error Handler
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  if (err && (err.message?.includes('CORS') || err.status === 403)) {
+    res.status(403).json({
+      success: false,
+      error: err.message || 'CORS policy violation: access denied.',
+    });
+    return;
+  }
   console.error('[Global Error]', err);
   res.status(500).json({
     success: false,

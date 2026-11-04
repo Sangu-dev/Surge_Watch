@@ -1,15 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
+import { verifyAccessToken, TokenUserPayload } from '../utils/token.js';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'surgewatch_super_secure_emergency_secret_2026';
-
-export interface AuthenticatedUser {
-  id: string;
-  email: string;
-  role: 'PATIENT' | 'HOSPITAL_ADMIN' | 'PLATFORM_ADMIN';
-  fullName: string;
-  hospitalId?: string;
-}
+export type AuthenticatedUser = TokenUserPayload;
 
 export interface AuthenticatedRequest extends Request {
   user?: AuthenticatedUser;
@@ -31,13 +23,23 @@ export const requireAuth = (
 
   const token = authHeader.split(' ')[1];
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as AuthenticatedUser;
+    const decoded = verifyAccessToken(token);
     req.user = decoded;
     next();
-  } catch (err) {
+  } catch (err: any) {
+    if (err.name === 'TokenExpiredError') {
+      res.status(401).json({
+        success: false,
+        error: 'Your session has expired. Please sign in again or refresh your session.',
+        code: 'TOKEN_EXPIRED',
+      });
+      return;
+    }
+
     res.status(401).json({
       success: false,
-      error: 'Invalid or expired authentication session. Please sign in again.',
+      error: 'Invalid authentication session. Please sign in again.',
+      code: 'TOKEN_INVALID',
     });
   }
 };
