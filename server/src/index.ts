@@ -20,12 +20,29 @@ export const io = initSocketIO(server);
 app.use(cors());
 app.use(express.json());
 
+// Root endpoint for browser visits and uptime monitors
+app.get('/', (_req, res) => {
+  res.json({
+    name: 'SurgeWatch BLR Emergency Backend API',
+    status: 'ONLINE',
+    version: '1.0.0',
+    service: 'Real-time Emergency Hospital Discovery & Capacity Signaling Platform for Bengaluru',
+    endpoints: {
+      health: '/api/health',
+      docs: '/api/docs',
+      hospitals: '/api/v1/hospitals/approved-locations',
+      nearby: '/api/v1/hospitals/nearby?lat=12.9716&lon=77.5946&radiusKm=5',
+    },
+    timestamp: new Date().toISOString(),
+  });
+});
+
 // API health endpoint
 app.get('/api/health', (_req, res) => {
   res.json({
     status: 'HEALTHY',
     service: 'SurgeWatch Emergency Backend',
-    database: 'SQLite Relational Database (Prisma ORM)',
+    database: 'PostgreSQL Relational Database (Supabase / Prisma ORM)',
     geographicTarget: 'Bengaluru, Karnataka, India',
     timestamp: new Date().toISOString(),
   });
