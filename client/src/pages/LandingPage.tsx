@@ -20,12 +20,13 @@ import { BENGALURU_LANDMARKS } from '../data/mockHospitals';
 import type { Hospital, LandmarkPreset } from '../types';
 import { HospitalCard } from '../components/HospitalCard';
 import { RadiusSelector } from '../components/RadiusSelector';
+import { QuickLandmarkPresets } from '../components/QuickLandmarkPresets';
 import { MapPreview } from '../components/MapPreview';
 import { HospitalDetailModal } from '../components/HospitalDetailModal';
 import { HospitalSkeleton } from '../components/HospitalSkeleton';
 import { useHospitalSearch } from '../hooks/useHospitalSearch';
 import { useDeviceLocation } from '../hooks/useDeviceLocation';
-import { fetchApprovedLocations } from '../services/api';
+import { fetchApprovedLocations, geocodeLocationQuery } from '../services/api';
 import { getSocket } from '../services/socket';
 
 interface LandingPageProps {
@@ -48,6 +49,7 @@ export const LandingPage: FC<LandingPageProps> = ({
 
   const [searchRadius, setSearchRadius] = useState<number>(5);
   const [selectedHospital, setSelectedHospital] = useState<Hospital | null>(null);
+  const [focusedHospital, setFocusedHospital] = useState<Hospital | null>(null);
   const [filterFacility, setFilterFacility] = useState<string>('ALL');
   const [sortBy, setSortBy] = useState<'distance' | 'beds' | 'ambulances'>('distance');
   const [manualQuery, setManualQuery] = useState<string>('');
@@ -190,8 +192,14 @@ export const LandingPage: FC<LandingPageProps> = ({
       return;
     }
 
-    // 4. Default fallback near text query
-    selectManualLocation(location.lat, location.lng, `Near "${manualQuery.trim()}" (Bengaluru)`);
+    // 4. Forward Geocode locality or address
+    geocodeLocationQuery(manualQuery.trim()).then((coords) => {
+      if (coords) {
+        selectManualLocation(coords.latitude, coords.longitude, `${manualQuery.trim()} (Bengaluru)`);
+      } else {
+        selectManualLocation(location.lat, location.lng, `Near "${manualQuery.trim()}" (Bengaluru)`);
+      }
+    });
     setManualQuery('');
   };
 
@@ -495,49 +503,13 @@ export const LandingPage: FC<LandingPageProps> = ({
               )}
 
               {/* One-Click Bengaluru Landmark & Approved Hospital Chips */}
-              <div className="pt-1">
-                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1.5">
-                  Or pick an approved hospital or common emergency landmark:
-                </span>
-                <div className="flex flex-wrap gap-1.5">
-                  {approvedHospitals.map((hosp) => {
-                    const isSelected = location.label.includes(hosp.name);
-                    return (
-                      <button
-                        key={hosp.id}
-                        type="button"
-                        onClick={() => handleSelectHospital(hosp)}
-                        className={`text-xs px-2.5 py-1 rounded-lg font-semibold transition-all cursor-pointer inline-flex items-center gap-1.5 ${
-                          isSelected
-                            ? 'bg-sky-700 text-white shadow-2xs'
-                            : 'bg-sky-50 hover:bg-sky-100 text-sky-900 border border-sky-200'
-                        }`}
-                        title={`Pin ${hosp.name} (${hosp.area})`}
-                      >
-                        <Building2 className="w-3 h-3 text-sky-600" />
-                        <span>{hosp.name.split('(')[0].replace('Hospital', 'Hosp.').trim()}</span>
-                      </button>
-                    );
-                  })}
-                  {BENGALURU_LANDMARKS.map((preset) => {
-                    const isSelected = location.label.includes(preset.name);
-                    return (
-                      <button
-                        key={preset.id}
-                        type="button"
-                        onClick={() => handleSelectLandmark(preset)}
-                        className={`text-xs px-2.5 py-1 rounded-lg font-semibold transition-all cursor-pointer ${
-                          isSelected
-                            ? 'bg-slate-900 text-white shadow-2xs'
-                            : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                        }`}
-                      >
-                        {preset.name.split('/')[0].trim()}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
+              <QuickLandmarkPresets
+                currentLocationLabel={location.label}
+                approvedHospitals={approvedHospitals}
+                landmarks={BENGALURU_LANDMARKS}
+                onSelectHospital={handleSelectHospital}
+                onSelectLandmark={handleSelectLandmark}
+              />
             </div>
           </div>
         </div>
@@ -639,7 +611,11 @@ export const LandingPage: FC<LandingPageProps> = ({
               accidentLocation={location}
               radiusKm={searchRadius}
               hospitals={filteredHospitals}
-              onSelectHospital={setSelectedHospital}
+              selectedHospital={focusedHospital || selectedHospital}
+              onSelectHospital={(hosp) => {
+                setFocusedHospital(hosp);
+                setSelectedHospital(hosp);
+              }}
               onMapClick={handleMapClick}
             />
             <div className="bg-sky-50 border border-sky-100 rounded-xl p-3 text-xs text-sky-900 flex items-start gap-2">
@@ -714,20 +690,24 @@ export const LandingPage: FC<LandingPageProps> = ({
                   Try expanding the search radius to 15 km or 20 km, or clearing specific facility filters to locate the closest available emergency centres.
                 </p>
                 <div className="pt-2 flex justify-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setSearchRadius(15)}
-                    className="px-4 py-2 bg-slate-900 text-white rounded-lg text-xs font-bold"
-                  >
-                    Expand to 15 km
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSearchRadius(20)}
-                    className="px-4 py-2 bg-slate-900 text-white rounded-lg text-xs font-bold"
-                  >
-                    Expand to 20 km
-                  </button>
+                  {searchRadius < 10 && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchRadius(10)}
+                      className="px-4 py-2 bg-slate-900 text-white rounded-lg text-xs font-bold cursor-pointer"
+                    >
+                      Expand to 10 km
+                    </button>
+                  )}
+                  {searchRadius < 15 && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchRadius(15)}
+                      className="px-4 py-2 bg-slate-900 text-white rounded-lg text-xs font-bold cursor-pointer"
+                    >
+                      Expand to 15 km
+                    </button>
+                  )}
                 </div>
               </div>
             ) : (
@@ -737,8 +717,11 @@ export const LandingPage: FC<LandingPageProps> = ({
                     key={hosp.id}
                     hospital={hosp}
                     rank={idx + 1}
-                    onViewDetails={setSelectedHospital}
-                    onFocusOnMap={setSelectedHospital}
+                    onViewDetails={(h) => {
+                      setFocusedHospital(h);
+                      setSelectedHospital(h);
+                    }}
+                    onFocusOnMap={setFocusedHospital}
                   />
                 ))}
               </div>

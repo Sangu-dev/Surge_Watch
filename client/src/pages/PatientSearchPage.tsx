@@ -5,6 +5,7 @@ import { BENGALURU_LANDMARKS } from '../data/mockHospitals';
 import type { Hospital, LandmarkPreset } from '../types';
 import { HospitalCard } from '../components/HospitalCard';
 import { RadiusSelector } from '../components/RadiusSelector';
+import { QuickLandmarkPresets } from '../components/QuickLandmarkPresets';
 import { MapPreview } from '../components/MapPreview';
 import { HospitalDetailModal } from '../components/HospitalDetailModal';
 import { HospitalSkeleton } from '../components/HospitalSkeleton';
@@ -31,7 +32,8 @@ import {
 import {
   dispatchEmergencyAmbulance,
   releaseEmergencyAmbulance,
-  fetchApprovedLocations
+  fetchApprovedLocations,
+  geocodeLocationQuery
 } from '../services/api';
 import { getSocket } from '../services/socket';
 import surgeWatchLogo from '../assets/Surge_watch.png';
@@ -53,6 +55,7 @@ export const PatientSearchPage: FC = () => {
 
   const [searchRadius, setSearchRadius] = useState<number>(5); // Starts at recommended 5 km radius
   const [selectedHospital, setSelectedHospital] = useState<Hospital | null>(null);
+  const [focusedHospital, setFocusedHospital] = useState<Hospital | null>(null);
   const [filterFacility, setFilterFacility] = useState<string>('ALL');
   const [sortBy, setSortBy] = useState<'distance' | 'beds' | 'ambulances'>('distance');
   const [manualQuery, setManualQuery] = useState<string>('');
@@ -179,7 +182,14 @@ export const PatientSearchPage: FC = () => {
       return;
     }
 
-    selectManualLocation(location.lat, location.lng, `Near "${manualQuery.trim()}" (Bengaluru)`);
+    // 4. Forward Geocode locality or address
+    geocodeLocationQuery(manualQuery.trim()).then((coords) => {
+      if (coords) {
+        selectManualLocation(coords.latitude, coords.longitude, `${manualQuery.trim()} (Bengaluru)`);
+      } else {
+        selectManualLocation(location.lat, location.lng, `Near "${manualQuery.trim()}" (Bengaluru)`);
+      }
+    });
     setManualQuery('');
   };
 
@@ -190,7 +200,7 @@ export const PatientSearchPage: FC = () => {
 
   // Focus map on a specific hospital
   const handleFocusOnMap = (hospital: Hospital) => {
-    setSelectedHospital(hospital);
+    setFocusedHospital(hospital);
   };
 
   // Live Real Hospital Search Hook (OpenStreetMap Overpass + Local Database)
@@ -602,45 +612,14 @@ export const PatientSearchPage: FC = () => {
           )}
 
           {/* Quick Landmark & Approved Hospital Presets */}
-          <div className="flex flex-wrap items-center gap-1.5 pt-1">
-            <span className="text-[11px] font-bold text-slate-400 mr-1">Quick Select:</span>
-            {approvedHospitals.map((hosp) => {
-              const isSelected = location.label.includes(hosp.name);
-              return (
-                <button
-                  key={hosp.id}
-                  type="button"
-                  onClick={() => handleSelectHospital(hosp)}
-                  className={`text-xs px-2.5 py-1 rounded-lg font-semibold transition-all cursor-pointer inline-flex items-center gap-1.5 ${
-                    isSelected
-                      ? 'bg-sky-700 text-white shadow-2xs'
-                      : 'bg-sky-50 hover:bg-sky-100 text-sky-900 border border-sky-200'
-                  }`}
-                  title={`Pin ${hosp.name} (${hosp.area})`}
-                >
-                  <Building2 className="w-3 h-3 text-sky-600" />
-                  <span>{hosp.name.split('(')[0].replace('Hospital', 'Hosp.').trim()}</span>
-                </button>
-              );
-            })}
-            {BENGALURU_LANDMARKS.map((preset) => {
-              const isSelected = location.label.includes(preset.name);
-              return (
-                <button
-                  key={preset.id}
-                  type="button"
-                  onClick={() => handleSelectLandmark(preset)}
-                  className={`text-xs px-2.5 py-1 rounded-lg font-semibold transition-all cursor-pointer ${
-                    isSelected
-                      ? 'bg-slate-900 text-white shadow-2xs'
-                      : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                  }`}
-                >
-                  {preset.name.split('/')[0].trim()}
-                </button>
-              );
-            })}
-          </div>
+          <QuickLandmarkPresets
+            currentLocationLabel={location.label}
+            approvedHospitals={approvedHospitals}
+            landmarks={BENGALURU_LANDMARKS}
+            onSelectHospital={handleSelectHospital}
+            onSelectLandmark={handleSelectLandmark}
+            compact
+          />
         </div>
 
         {/* Radius Selector */}
@@ -720,8 +699,12 @@ export const PatientSearchPage: FC = () => {
               accidentLocation={location}
               radiusKm={searchRadius}
               hospitals={filteredHospitals}
+              selectedHospital={focusedHospital || selectedHospital}
               isTrackingLive={isTrackingLive}
-              onSelectHospital={setSelectedHospital}
+              onSelectHospital={(hosp) => {
+                setFocusedHospital(hosp);
+                setSelectedHospital(hosp);
+              }}
               onMapClick={handleMapClick}
             />
 
