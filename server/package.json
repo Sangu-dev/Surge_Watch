@@ -9,6 +9,7 @@
     "build": "prisma generate && tsc",
     "start": "node dist/index.js",
     "seed": "tsx prisma/seed.ts",
+    "bootstrap:admin": "tsx src/scripts/createMasterAdmin.ts",
     "test": "echo \"Stage 2 & 3 Tests Passing\" && exit 0",
     "test:nearby": "tsx src/testStageNearbyHospitals.ts",
     "test:stage5": "tsx src/testStage5.ts",

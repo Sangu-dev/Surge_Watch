@@ -22,9 +22,11 @@ model User {
   createdAt        DateTime             @default(now())
   updatedAt        DateTime             @updatedAt
 
-  memberships      HospitalMembership[]
-  accessRequests   HospitalAccessRequest[]
-  auditLogs        ResourceUpdateAudit[]
+  memberships         HospitalMembership[]
+  accessRequests      HospitalAccessRequest[]
+  auditLogs           ResourceUpdateAudit[]
+  passwordResetTokens PasswordResetToken[]
+  refreshTokens       RefreshToken[]
 
   @@index([email])
 }
@@ -195,3 +197,45 @@ model HospitalAccessRequest {
   user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   hospital             Hospital?          @relation(fields: [hospitalId], references: [id], onDelete: SetNull)
 }
+
+model PasswordResetToken {
+  id         String    @id @default(uuid())
+  userId     String
+  tokenHash  String    @unique
+  purpose    String    @default("PASSWORD_RESET") // PASSWORD_RESET, HOSPITAL_INVITATION
+  expiresAt  DateTime
+  usedAt     DateTime?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime  @default(now())
+
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@index([expiresAt])
+  @@index([purpose])
+}
+
+model RefreshToken {
+  id                  String    @id @default(uuid())
+  userId              String
+  tokenHash           String    @unique
+  family              String
+  replacedByTokenHash String?
+  expiresAt           DateTime
+  revokedAt           DateTime?
+  revocationReason    String?
+  ipAddress           String?
+  userAgent           String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@index([family])
+  @@index([expiresAt])
+}
+

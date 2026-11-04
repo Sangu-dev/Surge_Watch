@@ -3,6 +3,7 @@
 .env.*
 *.env
 !.env.example
+!.env.staging.example
 
 # Database files
 *.db
@@ -23,3 +24,6 @@ dist/
 # Logs
 *.log
 logs/
+
+#backups
+backups/
