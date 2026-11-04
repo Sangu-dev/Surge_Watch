@@ -24,22 +24,32 @@ if (process.env.NODE_ENV === 'production' || process.env.TRUST_PROXY === 'true')
 
 export const io = initSocketIO(server);
 
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      if (!origin || isTrustedOrigin(origin)) {
-        callback(null, origin || true);
-      } else {
-        const err = new Error(`CORS policy violation: Access from origin '${origin}' is denied.`);
-        (err as any).status = 403;
-        callback(err);
-      }
-    },
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  })
-);
+const corsOptions: cors.CorsOptions = {
+  origin: (origin, callback) => {
+    if (!origin || isTrustedOrigin(origin)) {
+      callback(null, origin || true);
+    } else {
+      console.warn(`[CORS REJECTED] Access from origin '${origin}' is not authorized.`);
+      callback(new Error(`CORS policy violation: Access from origin '${origin}' is denied.`));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'X-Requested-With',
+    'Accept',
+    'Origin',
+    'Cookie',
+    'X-CSRF-Token',
+    'Cache-Control',
+  ],
+  optionsSuccessStatus: 200,
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
 // Standard Browser Security Headers
 app.use((_req, res, next) => {

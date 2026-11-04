@@ -7,6 +7,11 @@ const devOrigins = [
   'http://127.0.0.1:3000',
 ];
 
+const defaultProdOrigins = [
+  'https://surge-watch.vercel.app',
+  'https://surge-watch-api.onrender.com',
+];
+
 export const getTrustedOrigins = (): string[] => {
   const envRaw = [
     process.env.CLIENT_ORIGIN,
@@ -15,7 +20,7 @@ export const getTrustedOrigins = (): string[] => {
   ].filter(Boolean) as string[];
 
   // Support comma-separated strings and strip trailing slashes
-  const configuredProdOrigins: string[] = [];
+  const configuredProdOrigins: string[] = [...defaultProdOrigins];
   for (const raw of envRaw) {
     for (const item of raw.split(',')) {
       const trimmed = item.trim().replace(/\/+$/, '');
@@ -40,6 +45,11 @@ export const isTrustedOrigin = (origin: string): boolean => {
   const allowed = getTrustedOrigins();
 
   if (allowed.includes(normalizedOrigin)) return true;
+
+  // Automatically allow any Vercel deployment of Surge Watch (e.g. preview branches or production)
+  if (/^https:\/\/([a-z0-9-]+\.)?vercel\.app$/i.test(normalizedOrigin)) {
+    return true;
+  }
 
   // Support wildcard domains e.g. https://*.vercel.app
   for (const allowedOrigin of allowed) {
