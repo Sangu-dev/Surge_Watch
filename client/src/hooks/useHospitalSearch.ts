@@ -35,11 +35,11 @@ export function useHospitalSearch({
     if (service !== 'ALL') {
       filtered = hospitals.filter((hosp) => {
         if (service === 'ICU') {
-          const icu = hosp.beds.find((b) => b.category === 'EMERGENCY_ICU');
+          const icu = (hosp.beds || []).find((b) => b.category === 'EMERGENCY_ICU');
           return (icu?.availableBeds ?? 0) > 0;
         }
         if (service === 'ER') {
-          const er = hosp.beds.find(
+          const er = (hosp.beds || []).find(
             (b) => b.category === 'EMERGENCY_GENERAL' || b.category === 'TRAUMA_RESUSCITATION'
           );
           return (er?.availableBeds ?? 0) > 0;
@@ -61,7 +61,7 @@ export function useHospitalSearch({
           return avail > 0;
         }
         if (service === 'TRAUMA') {
-          return hosp.emergencyServices.some((s) => s.toLowerCase().includes('trauma'));
+          return (hosp.emergencyServices || []).some((s) => s.toLowerCase().includes('trauma'));
         }
         if (service === 'AMBULANCE') {
           const ready = (hosp.ambulances || []).reduce((acc, a) => acc + (a.availableReadyCount || 0), 0);
@@ -90,13 +90,15 @@ export function useHospitalSearch({
     return sorted;
   }, [service, sortBy]);
 
-  const fetchResults = useCallback(async () => {
+  const fetchResults = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     setError(null);
 
     try {
       // 1. Attempt to fetch from real backend discovery service (OpenStreetMap Overpass + Local Database)
-      const remote = await fetchNearbyHospitals(lat, lng, radius, service, sortBy);
+      const remote = await fetchNearbyHospitals(lat, lng, radius, service, sortBy, signal);
+
+      if (signal?.aborted) return;
 
       if (remote) {
         setIsBackendConnected(true);
@@ -114,9 +116,14 @@ export function useHospitalSearch({
           return;
         }
       }
-    } catch {
+    } catch (err: any) {
+      if (err?.name === 'AbortError' || signal?.aborted) {
+        return;
+      }
       // Network failure, fallback cleanly to local computation
     }
+
+    if (signal?.aborted) return;
 
     // 2. Resilient local fallback using exact geodesic math
     setIsBackendConnected(false);
@@ -135,11 +142,11 @@ export function useHospitalSearch({
       .filter((hosp) => {
         if (service === 'ALL') return true;
         if (service === 'ICU') {
-          const icu = hosp.beds.find((b) => b.category === 'EMERGENCY_ICU');
+          const icu = (hosp.beds || []).find((b) => b.category === 'EMERGENCY_ICU');
           return (icu?.availableBeds ?? 0) > 0;
         }
         if (service === 'ER') {
-          const er = hosp.beds.find((b) => b.category === 'EMERGENCY_GENERAL' || b.category === 'TRAUMA_RESUSCITATION');
+          const er = (hosp.beds || []).find((b) => b.category === 'EMERGENCY_GENERAL' || b.category === 'TRAUMA_RESUSCITATION');
           return (er?.availableBeds ?? 0) > 0;
         }
         if (service === 'DOCTORS') {
@@ -157,10 +164,10 @@ export function useHospitalSearch({
           return avail > 0;
         }
         if (service === 'TRAUMA') {
-          return hosp.emergencyServices.some((s) => s.toLowerCase().includes('trauma'));
+          return (hosp.emergencyServices || []).some((s) => s.toLowerCase().includes('trauma'));
         }
         if (service === 'AMBULANCE') {
-          const ready = hosp.ambulances.reduce((acc, a) => acc + a.availableReadyCount, 0);
+          const ready = (hosp.ambulances || []).reduce((acc, a) => acc + (a.availableReadyCount || 0), 0);
           return ready > 0;
         }
         return true;
@@ -198,7 +205,11 @@ export function useHospitalSearch({
   }, [lat, lng, radius, service, sortBy, applyFilterAndSort]);
 
   useEffect(() => {
-    fetchResults();
+    const controller = new AbortController();
+    fetchResults(controller.signal);
+    return () => {
+      controller.abort();
+    };
   }, [fetchResults]);
 
   // Connect to Socket.IO real-time availability broadcasts
