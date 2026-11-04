@@ -34,24 +34,24 @@ export const HospitalDashboardPage: FC = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
-  // Find the authorized hospital for this logged-in admin (fallback to Victoria Hospital)
-  const baseHospital: Hospital = useMemo(() => {
-    const matched = MOCK_HOSPITALS.find((h) => h.id === user?.hospitalId);
-    return matched || MOCK_HOSPITALS[0];
+  // Find the authorized hospital for this logged-in admin (strictly avoid falling back to Victoria Hospital)
+  const baseHospital: Hospital | undefined = useMemo(() => {
+    if (!user?.hospitalId) return undefined;
+    return MOCK_HOSPITALS.find((h) => h.id === user.hospitalId);
   }, [user?.hospitalId]);
 
   // Working state for editable resources
-  const [beds, setBeds] = useState<BedBreakdown[]>(baseHospital.beds);
-  const [staff, setStaff] = useState<StaffBreakdown[]>(baseHospital.staff);
-  const [ambulances, setAmbulances] = useState<AmbulanceInfo[]>(baseHospital.ambulances);
+  const [beds, setBeds] = useState<BedBreakdown[]>(baseHospital?.beds || []);
+  const [staff, setStaff] = useState<StaffBreakdown[]>(baseHospital?.staff || []);
+  const [ambulances, setAmbulances] = useState<AmbulanceInfo[]>(baseHospital?.ambulances || []);
   const [ambulanceFleet, setAmbulanceFleet] = useState<AmbulanceRecord[]>([]);
-  const [lastPublished, setLastPublished] = useState<string>(baseHospital.lastResourceUpdate);
+  const [lastPublished, setLastPublished] = useState<string>(baseHospital?.lastResourceUpdate || new Date().toISOString());
   const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [confirmPublishOpen, setConfirmPublishOpen] = useState(false);
   const [loadingBackend, setLoadingBackend] = useState<boolean>(false);
   const [isLiveConnected, setIsLiveConnected] = useState<boolean>(false);
-  const [dataProvenance, setDataProvenance] = useState<string>(baseHospital.dataProvenance || 'DEMO');
+  const [dataProvenance, setDataProvenance] = useState<string>(baseHospital?.dataProvenance || 'MANUAL');
 
   // In-memory audit trail initialized with defaults, populated from live database
   const [auditLogs, setAuditLogs] = useState<Array<{
@@ -62,7 +62,7 @@ export const HospitalDashboardPage: FC = () => {
   }>>([
     {
       id: 'audit-1',
-      timestamp: baseHospital.lastResourceUpdate,
+      timestamp: baseHospital?.lastResourceUpdate || new Date().toISOString(),
       author: user?.fullName || 'Authorized Administrator',
       summary: 'Emergency ICU available beds synchronized to current ward count.',
     },
@@ -202,7 +202,7 @@ export const HospitalDashboardPage: FC = () => {
   // Handle individual vehicle status change
   const handleVehicleStatusChange = async (ambulanceId: string, newStatus: string) => {
     try {
-      await updateAmbulanceStatus(ambulanceId, { status: newStatus });
+      await updateAmbulanceStatus(ambulanceId, { status: newStatus }, user?.token);
       setSaveSuccessMessage(`Ambulance status updated to ${newStatus}.`);
       loadLiveData();
       setTimeout(() => setSaveSuccessMessage(null), 4000);
@@ -271,6 +271,35 @@ export const HospitalDashboardPage: FC = () => {
     navigate('/');
   };
 
+  if (!user?.hospitalId) {
+    return (
+      <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl border border-amber-300 p-8 max-w-lg w-full text-center space-y-4 shadow-sm">
+          <div className="w-14 h-14 rounded-full bg-amber-100 text-amber-700 mx-auto flex items-center justify-center">
+            <ShieldAlert className="w-8 h-8" />
+          </div>
+          <h2 className="text-xl font-bold text-slate-900">Hospital Facility Not Assigned</h2>
+          <p className="text-xs text-slate-600 leading-relaxed">
+            Your administrator account (<strong className="text-slate-800">{user?.email}</strong>) is verified, but does not have an active hospital facility assignment.
+          </p>
+          <p className="text-xs text-slate-500">
+            To prevent unauthorized access, hospital dashboard controls are disabled until a platform administrator links your account to your facility.
+          </p>
+          <div className="pt-2 flex justify-center gap-3">
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold cursor-pointer"
+            >
+              <LogOut className="w-4 h-4" />
+              <span>Sign Out</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-100/90 text-slate-900 pb-20 font-sans">
       {/* Top Header */}
@@ -283,7 +312,7 @@ export const HospitalDashboardPage: FC = () => {
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-lg sm:text-xl font-bold tracking-tight text-white leading-tight">
-                  {user?.hospitalName || baseHospital.name}
+                  {user?.hospitalName || baseHospital?.name || 'Authorized Hospital Facility'}
                 </h1>
                 <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-emerald-950 text-emerald-300 border border-emerald-800">
                   KPME Verified

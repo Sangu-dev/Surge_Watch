@@ -57,12 +57,13 @@ export function App() {
           <Route path="/patient/register" element={<PatientAuthPage />} />
           <Route path="/admin/login" element={<HospitalAdminAuthPage />} />
           <Route path="/admin/request-access" element={<HospitalAdminAuthPage />} />
+          <Route path="/reset-password" element={<HospitalAdminAuthPage />} />
 
           {/* Protected Hospital Administrator Dashboard */}
           <Route
             path="/admin/dashboard"
             element={
-              <ProtectedRoute allowedRoles={['HOSPITAL_ADMIN', 'PLATFORM_ADMIN']}>
+              <ProtectedRoute allowedRoles={['HOSPITAL_ADMIN', 'PLATFORM_ADMIN', 'MASTER_ADMIN']}>
                 <HospitalDashboardPage />
               </ProtectedRoute>
             }
@@ -72,7 +73,7 @@ export function App() {
           <Route
             path="/platform/dashboard"
             element={
-              <ProtectedRoute allowedRoles={['PLATFORM_ADMIN']}>
+              <ProtectedRoute allowedRoles={['PLATFORM_ADMIN', 'MASTER_ADMIN']}>
                 <PlatformAdminPage />
               </ProtectedRoute>
             }

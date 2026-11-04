@@ -15,6 +15,7 @@ export async function submitHospitalRegistration(payload: {
 }) {
   const res = await fetch(`${API_BASE}/auth/request-hospital-access`, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
     },
@@ -28,18 +29,208 @@ export async function submitHospitalRegistration(payload: {
   return data;
 }
 
-export async function loginAdminApi(email: string, password?: string, isDemo?: boolean) {
+export async function loginAdminApi(email: string, password: string) {
   const res = await fetch(`${API_BASE}/auth/login-admin`, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ email, password, isDemo }),
+    body: JSON.stringify({ email: email.toLowerCase().trim(), password }),
   });
 
   const data = await res.json();
   if (!res.ok || !data.success) {
     throw new Error(data.error || 'Failed to authenticate administrator account.');
+  }
+  return data;
+}
+
+export async function loginPatientApi(email: string, password: string) {
+  const res = await fetch(`${API_BASE}/auth/login-patient`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ email: email.toLowerCase().trim(), password }),
+  });
+
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to authenticate patient account.');
+  }
+  return data;
+}
+
+export async function registerPatientApi(payload: {
+  fullName: string;
+  email: string;
+  password: string;
+  phone?: string;
+}) {
+  const res = await fetch(`${API_BASE}/auth/register-patient`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      fullName: payload.fullName.trim(),
+      email: payload.email.toLowerCase().trim(),
+      password: payload.password,
+      phone: payload.phone?.trim() || undefined,
+    }),
+  });
+
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to register patient account.');
+  }
+  return data;
+}
+
+export async function validateSessionApi(token: string) {
+  const res = await fetch(`${API_BASE}/auth/me`, {
+    credentials: 'include',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Session validation failed.');
+  }
+  return data;
+}
+
+export async function refreshTokenApi() {
+  const res = await fetch(`${API_BASE}/auth/refresh-token`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Requested-With': 'XMLHttpRequest',
+    },
+    body: JSON.stringify({}),
+  });
+
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Session refresh failed.');
+  }
+  return data;
+}
+
+export async function logoutApi() {
+  try {
+    const res = await fetch(`${API_BASE}/auth/logout`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      body: JSON.stringify({}),
+    });
+    return await res.json();
+  } catch (err) {
+    console.warn('[API Client] Logout server request failed:', err);
+    return { success: true };
+  }
+}
+
+export async function forgotPasswordApi(email: string) {
+  const res = await fetch(`${API_BASE}/auth/forgot-password`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ email: email.toLowerCase().trim() }),
+  });
+
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to initiate password reset.');
+  }
+  return data;
+}
+
+export async function resetPasswordApi(token: string, newPassword: string) {
+  const res = await fetch(`${API_BASE}/auth/reset-password`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ token: token.trim(), newPassword }),
+  });
+
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to reset password.');
+  }
+  return data;
+}
+
+export async function activateHospitalAdminApi(token: string, newPassword: string) {
+  const res = await fetch(`${API_BASE}/auth/activate-hospital-admin`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ token: token.trim(), newPassword }),
+  });
+
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to activate hospital administrator account.');
+  }
+  return data;
+}
+
+export async function inviteHospitalAdminApi(
+  hospitalId: string,
+  payload: {
+    email: string;
+    fullName?: string;
+    phone?: string;
+    confirmRoleUpgrade?: boolean;
+  },
+  token: string
+) {
+  const res = await fetch(`${API_BASE}/platform/hospitals/${hospitalId}/invite-admin`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to provision hospital administrator.');
+  }
+  return data;
+}
+
+export async function toggleUserStatusApi(userId: string, isActive: boolean, token: string) {
+  const res = await fetch(`${API_BASE}/platform/users/${userId}/status`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ isActive }),
+  });
+
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Failed to update user account status.');
   }
   return data;
 }
@@ -282,13 +473,19 @@ export async function updateAmbulanceStatus(
     status?: string;
     currentLocation?: string;
     dispatchNotes?: string;
-  }
+  },
+  token?: string
 ) {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
   const res = await fetch(`${API_BASE}/admin/ambulances/${ambulanceId}/status`, {
     method: 'PATCH',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify(payload),
   });
   const data = await res.json();

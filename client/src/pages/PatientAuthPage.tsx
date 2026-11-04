@@ -2,27 +2,56 @@ import { useState } from 'react';
 import type { FC, FormEvent } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Lock, Mail, User, Phone, ArrowRight, ShieldCheck, ArrowLeft, Sparkles, CheckCircle2 } from 'lucide-react';
+import {
+  Lock,
+  Mail,
+  User,
+  Phone,
+  ArrowRight,
+  ShieldCheck,
+  ArrowLeft,
+  CheckCircle2,
+  Eye,
+  EyeOff,
+  Loader2,
+  AlertCircle,
+  KeyRound,
+} from 'lucide-react';
 
 export const PatientAuthPage: FC = () => {
-  const [isRegister, setIsRegister] = useState(false);
+  const [mode, setMode] = useState<'LOGIN' | 'REGISTER' | 'FORGOT_PASSWORD'>('LOGIN');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const { loginPatient, registerPatient, loginDemoUser } = useAuth();
+  // Forgot / Reset password state
+  const [resetToken, setResetToken] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [tokenReceived, setTokenReceived] = useState<string | null>(null);
+
+  const { loginPatient, registerPatient, forgotPassword, resetPassword } = useAuth();
   const navigate = useNavigate();
 
-  const handleSubmit = async (e: FormEvent) => {
+  const handleAuthSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
+    setSuccessMsg(null);
     setLoading(true);
 
     try {
-      if (isRegister) {
+      if (mode === 'REGISTER') {
+        if (password.length < 8) {
+          setError('Password must be at least 8 characters long.');
+          setLoading(false);
+          return;
+        }
+
         const res = await registerPatient(name, email, password, phone);
         if (!res.success) {
           setError(res.error || 'Failed to create patient account.');
@@ -32,22 +61,71 @@ export const PatientAuthPage: FC = () => {
       } else {
         const res = await loginPatient(email, password);
         if (!res.success) {
-          setError(res.error || 'Failed to sign in.');
+          setError(res.error || 'Invalid email or password.');
           setLoading(false);
           return;
         }
       }
       navigate('/search');
-    } catch {
-      setError('An unexpected error occurred. Please try again.');
+    } catch (err: any) {
+      setError(err.message || 'An unexpected error occurred. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleQuickDemo = () => {
-    loginDemoUser('PATIENT');
-    navigate('/search');
+  const handleForgotPasswordSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSuccessMsg(null);
+    setLoading(true);
+
+    try {
+      const res = await forgotPassword(email);
+      if (res.success) {
+        setSuccessMsg(res.message || 'Password reset instructions have been generated.');
+        if (res.resetToken) {
+          setTokenReceived(res.resetToken);
+          setResetToken(res.resetToken);
+        }
+      } else {
+        setError(res.error || 'Failed to initiate password reset.');
+      }
+    } catch (err: any) {
+      setError(err.message || 'An unexpected error occurred.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResetPasswordSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSuccessMsg(null);
+
+    if (newPassword.length < 8) {
+      setError('New password must be at least 8 characters long.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await resetPassword(resetToken, newPassword);
+      if (res.success) {
+        setSuccessMsg('Password successfully changed! You may now sign in.');
+        setMode('LOGIN');
+        setPassword('');
+        setResetToken('');
+        setNewPassword('');
+        setTokenReceived(null);
+      } else {
+        setError(res.error || 'Failed to reset password.');
+      }
+    } catch (err: any) {
+      setError(err.message || 'An unexpected error occurred.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -58,7 +136,7 @@ export const PatientAuthPage: FC = () => {
           to="/"
           className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 hover:text-slate-900 transition-colors"
         >
-          <ArrowLeft className="w-4 h-4" />
+          <ArrowLeft className="w-4 h-4 text-sky-600" />
           <span>Back to Emergency Discovery</span>
         </Link>
       </div>
@@ -69,11 +147,17 @@ export const PatientAuthPage: FC = () => {
             SW
           </div>
           <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-            {isRegister ? 'Create Patient Account' : 'Patient Sign In'}
+            {mode === 'REGISTER'
+              ? 'Create Patient Account'
+              : mode === 'FORGOT_PASSWORD'
+              ? 'Recover Patient Account'
+              : 'Patient Sign In'}
           </h2>
           <p className="text-xs text-slate-500">
-            {isRegister
+            {mode === 'REGISTER'
               ? 'Save frequent routes and emergency hospital contacts'
+              : mode === 'FORGOT_PASSWORD'
+              ? 'Reset your password using a one-time verification token'
               : 'Sign in to access saved hospitals and preferred emergency routes'}
           </p>
         </div>
@@ -92,119 +176,277 @@ export const PatientAuthPage: FC = () => {
         {/* Main Card */}
         <div className="mt-4 bg-white py-8 px-6 sm:px-8 border border-slate-200/90 rounded-2xl shadow-sm space-y-6">
           {error && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 font-medium">
-              {error}
+            <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 font-medium flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
+              <span>{error}</span>
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {isRegister && (
+          {successMsg && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-800 font-medium flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+              <span>{successMsg}</span>
+            </div>
+          )}
+
+          {tokenReceived && (
+            <div className="p-3 bg-slate-50 border border-amber-300 rounded-xl text-xs space-y-1">
+              <span className="font-bold text-amber-800 block">Your One-Time Reset Token:</span>
+              <code className="block p-2 bg-slate-100 rounded font-mono text-[11px] text-slate-800 break-all select-all">
+                {tokenReceived}
+              </code>
+              <span className="text-[10px] text-slate-500 block">
+                Token prefilled below. Enter your new password to complete the reset.
+              </span>
+            </div>
+          )}
+
+          {mode === 'FORGOT_PASSWORD' ? (
+            <div className="space-y-4">
+              {!tokenReceived ? (
+                <form onSubmit={handleForgotPasswordSubmit} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                      Registered Email Address
+                    </label>
+                    <div className="relative">
+                      <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="email"
+                        required
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="patient@example.com"
+                        className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm text-slate-900 focus:border-sky-500 outline-hidden"
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full inline-flex items-center justify-center gap-2 py-3 px-4 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-sm font-bold shadow-sm transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Sending Instructions...</span>
+                      </>
+                    ) : (
+                      <>
+                        <KeyRound className="w-4 h-4" />
+                        <span>Generate Reset Token</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+              ) : (
+                <form onSubmit={handleResetPasswordSubmit} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                      Reset Token
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={resetToken}
+                      onChange={(e) => setResetToken(e.target.value)}
+                      placeholder="64-character token"
+                      className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-mono text-slate-900 focus:border-sky-500 outline-hidden"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                      New Password (min 8 characters)
+                    </label>
+                    <div className="relative">
+                      <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type={showNewPassword ? 'text' : 'password'}
+                        required
+                        minLength={8}
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        placeholder="••••••••"
+                        className="w-full pl-9 pr-10 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm text-slate-900 focus:border-sky-500 outline-hidden"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowNewPassword(!showNewPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                      >
+                        {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full inline-flex items-center justify-center gap-2 py-3 px-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-sm font-bold shadow-sm transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Updating Password...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>Confirm New Password</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+              )}
+
+              <div className="text-center pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode('LOGIN');
+                    setError(null);
+                    setSuccessMsg(null);
+                  }}
+                  className="text-xs text-sky-700 hover:underline font-semibold cursor-pointer"
+                >
+                  Return to Patient Sign In
+                </button>
+              </div>
+            </div>
+          ) : (
+            <form onSubmit={handleAuthSubmit} className="space-y-4">
+              {mode === 'REGISTER' && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Full Name
+                  </label>
+                  <div className="relative">
+                    <User className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      required
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="e.g. Arun Varma"
+                      className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm text-slate-900 focus:border-sky-500 outline-hidden"
+                    />
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Full Name
+                  Email Address
                 </label>
                 <div className="relative">
-                  <User className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
-                    type="text"
+                    type="email"
                     required
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="e.g. Arun Varma"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="name@example.com"
                     className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm text-slate-900 focus:border-sky-500 outline-hidden"
                   />
                 </div>
               </div>
-            )}
 
-            <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                Email Address
-              </label>
-              <div className="relative">
-                <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="name@example.com"
-                  className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm text-slate-900 focus:border-sky-500 outline-hidden"
-                />
-              </div>
-            </div>
+              {mode === 'REGISTER' && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Mobile Number (Optional)
+                  </label>
+                  <div className="relative">
+                    <Phone className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="tel"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      placeholder="+91 98450 12345"
+                      className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm text-slate-900 focus:border-sky-500 outline-hidden"
+                    />
+                  </div>
+                </div>
+              )}
 
-            {isRegister && (
               <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Mobile Number (Optional)
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                    Password {mode === 'REGISTER' && '(min 8 characters)'}
+                  </label>
+                  {mode === 'LOGIN' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMode('FORGOT_PASSWORD');
+                        setError(null);
+                        setSuccessMsg(null);
+                      }}
+                      className="text-[11px] text-sky-700 hover:underline font-semibold cursor-pointer"
+                    >
+                      Forgot Password?
+                    </button>
+                  )}
+                </div>
                 <div className="relative">
-                  <Phone className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
-                    type="tel"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="+91 98450 12345"
-                    className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm text-slate-900 focus:border-sky-500 outline-hidden"
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    minLength={mode === 'REGISTER' ? 8 : undefined}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full pl-9 pr-10 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm text-slate-900 focus:border-sky-500 outline-hidden"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                    aria-label="Toggle password visibility"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
                 </div>
               </div>
-            )}
 
-            <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                Password
-              </label>
-              <div className="relative">
-                <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm text-slate-900 focus:border-sky-500 outline-hidden"
-                />
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full inline-flex items-center justify-center gap-2 py-3 px-4 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-sm font-bold shadow-sm transition-all cursor-pointer disabled:opacity-50"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Verifying...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>{mode === 'REGISTER' ? 'Complete Registration' : 'Sign In'}</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
+              </button>
+
+              <div className="text-center pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode(mode === 'REGISTER' ? 'LOGIN' : 'REGISTER');
+                    setError(null);
+                    setSuccessMsg(null);
+                  }}
+                  className="text-xs text-sky-700 hover:underline font-semibold cursor-pointer"
+                >
+                  {mode === 'REGISTER'
+                    ? 'Already have an account? Sign In here'
+                    : "Don't have an account? Create one now"}
+                </button>
               </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full inline-flex items-center justify-center gap-2 py-3 px-4 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-sm font-bold shadow-sm transition-all cursor-pointer disabled:opacity-50"
-            >
-              <span>{isRegister ? 'Complete Registration' : 'Sign In'}</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          </form>
-
-          {/* Quick Demo Fill Button */}
-          <div className="pt-2 border-t border-slate-100 text-center">
-            <button
-              type="button"
-              onClick={handleQuickDemo}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 rounded-lg text-xs font-semibold transition-colors"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-sky-600" />
-              <span>Sign In with Demo Patient Account (Instant)</span>
-            </button>
-          </div>
-
-          <div className="text-center pt-2">
-            <button
-              type="button"
-              onClick={() => {
-                setIsRegister(!isRegister);
-                setError(null);
-              }}
-              className="text-xs text-sky-700 hover:underline font-semibold"
-            >
-              {isRegister
-                ? 'Already have an account? Sign In here'
-                : "Don't have an account? Create one now"}
-            </button>
-          </div>
+            </form>
+          )}
         </div>
 
         {/* Benefits list */}

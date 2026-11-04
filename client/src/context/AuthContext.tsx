@@ -1,7 +1,17 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { submitHospitalRegistration, loginAdminApi } from '../services/api';
+import {
+  submitHospitalRegistration,
+  loginAdminApi,
+  loginPatientApi,
+  registerPatientApi,
+  refreshTokenApi,
+  logoutApi,
+  forgotPasswordApi,
+  resetPasswordApi,
+  activateHospitalAdminApi,
+} from '../services/api';
 
-export type UserRole = 'PATIENT' | 'HOSPITAL_ADMIN' | 'PLATFORM_ADMIN';
+export type UserRole = 'PATIENT' | 'HOSPITAL_ADMIN' | 'PLATFORM_ADMIN' | 'MASTER_ADMIN';
 
 export interface AuthUser {
   id: string;
@@ -11,7 +21,7 @@ export interface AuthUser {
   phone?: string;
   hospitalId?: string;
   hospitalName?: string;
-  token?: string;
+  token?: string; // In-memory short-lived access token
 }
 
 export interface HospitalAccessApplication {
@@ -36,44 +46,42 @@ interface AuthContextType {
   registerPatient: (name: string, email: string, pass: string, phone?: string) => Promise<{ success: boolean; error?: string }>;
   loginAdmin: (email: string, pass: string) => Promise<{ success: boolean; error?: string; user?: AuthUser }>;
   submitHospitalAccessRequest: (data: Omit<HospitalAccessApplication, 'id' | 'status' | 'submittedAt'>) => Promise<{ success: boolean; error?: string; message?: string; applicationId?: string }>;
-  logout: () => void;
-  // Demo helper accounts for easy testing
-  loginDemoUser: (role: UserRole, hospitalId?: string) => Promise<void> | void;
+  forgotPassword: (email: string) => Promise<{ success: boolean; error?: string; message?: string; resetToken?: string }>;
+  resetPassword: (token: string, newPass: string) => Promise<{ success: boolean; error?: string; message?: string }>;
+  activateHospitalAdmin: (token: string, newPass: string) => Promise<{ success: boolean; error?: string; message?: string }>;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-const STORAGE_KEY = 'surgewatch_auth_session';
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Restore session from localStorage on initial load
+  // Restore authenticated session on mount via HttpOnly cookie handshake
+  // Access tokens remain strictly in-memory; refresh tokens are never stored in localStorage
   useEffect(() => {
     const restoreSession = async () => {
+      // Purge any legacy tokens from localStorage to eliminate insecure persistence
+      localStorage.removeItem('surgewatch_access_token');
+      localStorage.removeItem('surgewatch_refresh_token');
+      localStorage.removeItem('surgewatch_auth_session');
+      localStorage.removeItem('surgewatch_user');
+
       try {
-        const saved = localStorage.getItem(STORAGE_KEY);
-        if (saved) {
-          const parsed: AuthUser = JSON.parse(saved);
-          // If stored token is an outdated mock token, refresh it with real backend JWT
-          if (parsed.token && (parsed.token.startsWith('jwt-platform') || parsed.token.startsWith('demo-'))) {
-            try {
-              const res = await loginAdminApi(parsed.email, undefined, true);
-              if (res?.token && res?.user) {
-                const refreshed = { ...res.user, token: res.token };
-                setUser(refreshed);
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(refreshed));
-                return;
-              }
-            } catch {
-              // Ignore and keep parsed session
-            }
-          }
-          setUser(parsed);
+        // Attempt silent session restoration via HttpOnly cookie
+        const res = await refreshTokenApi();
+        if (res?.success && res.token && res.user) {
+          setUser({
+            ...res.user,
+            token: res.token,
+          });
+        } else {
+          setUser(null);
         }
-      } catch (e) {
-        console.error('Failed to restore auth session:', e);
+      } catch {
+        // Expected on fresh visit or when no active refresh session exists
+        setUser(null);
       } finally {
         setIsLoading(false);
       }
@@ -82,102 +90,84 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     restoreSession();
   }, []);
 
-  const saveUserSession = (newUser: AuthUser | null) => {
-    setUser(newUser);
-    if (newUser) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(newUser));
-    } else {
-      localStorage.removeItem(STORAGE_KEY);
-    }
-  };
-
-  const loginPatient = async (email: string, _pass: string) => {
+  const loginPatient = async (email: string, pass: string): Promise<{ success: boolean; error?: string }> => {
     if (!email || !email.includes('@')) {
       return { success: false, error: 'Please provide a valid email address.' };
     }
-
-    const patientUser: AuthUser = {
-      id: 'patient-' + Date.now(),
-      email,
-      fullName: email.split('@')[0].toUpperCase(),
-      role: 'PATIENT',
-      token: 'jwt-patient-token-' + Date.now(),
-    };
-    saveUserSession(patientUser);
-    return { success: true };
-  };
-
-  const registerPatient = async (name: string, email: string, _pass: string, phone?: string) => {
-    if (!name.trim()) return { success: false, error: 'Full name is required.' };
-    if (!email || !email.includes('@')) return { success: false, error: 'Valid email is required.' };
-
-    const patientUser: AuthUser = {
-      id: 'patient-' + Date.now(),
-      email,
-      fullName: name.trim(),
-      phone,
-      role: 'PATIENT',
-      token: 'jwt-patient-token-' + Date.now(),
-    };
-    saveUserSession(patientUser);
-    return { success: true };
-  };
-
-  const loginAdmin = async (email: string, pass: string): Promise<{ success: boolean; error?: string; user?: AuthUser }> => {
-    const cleanEmail = email.toLowerCase().trim();
+    if (!pass) {
+      return { success: false, error: 'Password is required.' };
+    }
 
     try {
-      const res = await loginAdminApi(cleanEmail, pass, !pass);
-      if (res && res.token && res.user) {
-        const adminUser: AuthUser = {
+      const res = await loginPatientApi(email, pass);
+      if (res?.success && res.token && res.user) {
+        setUser({
+          ...res.user,
+          token: res.token,
+        });
+        return { success: true };
+      }
+      return { success: false, error: 'Invalid response from authentication server.' };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to authenticate patient account.' };
+    }
+  };
+
+  const registerPatient = async (
+    name: string,
+    email: string,
+    pass: string,
+    phone?: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    if (!name.trim()) return { success: false, error: 'Full name is required.' };
+    if (!email || !email.includes('@')) return { success: false, error: 'Valid email is required.' };
+    if (!pass || pass.length < 8) return { success: false, error: 'Password must be at least 8 characters.' };
+
+    try {
+      const res = await registerPatientApi({
+        fullName: name,
+        email,
+        password: pass,
+        phone,
+      });
+
+      if (res?.success && res.token && res.user) {
+        setUser({
+          ...res.user,
+          token: res.token,
+        });
+        return { success: true };
+      }
+      return { success: false, error: 'Registration completed but session initialization failed.' };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to create patient account.' };
+    }
+  };
+
+  const loginAdmin = async (
+    email: string,
+    pass: string
+  ): Promise<{ success: boolean; error?: string; user?: AuthUser }> => {
+    if (!email || !email.includes('@')) {
+      return { success: false, error: 'Please enter a valid administrator email.' };
+    }
+    if (!pass) {
+      return { success: false, error: 'Password is required.' };
+    }
+
+    try {
+      const res = await loginAdminApi(email, pass);
+      if (res?.success && res.token && res.user) {
+        const fullUser: AuthUser = {
           ...res.user,
           token: res.token,
         };
-        saveUserSession(adminUser);
-        return { success: true, user: adminUser };
+        setUser(fullUser);
+        return { success: true, user: fullUser };
       }
-      return { success: false, error: 'Authentication failed.' };
+      return { success: false, error: 'Authentication failed: Invalid credentials.' };
     } catch (err: any) {
-      console.warn('API loginAdmin failed, attempting demo account resolution:', err);
-
-      // Resilient fallback for offline mode
-      if (cleanEmail === 'superadmin@surgewatch.in' || cleanEmail.includes('superadmin')) {
-        const adminUser: AuthUser = {
-          id: 'plat-admin-1',
-          email: cleanEmail,
-          fullName: 'SurgeWatch Platform Operations Lead',
-          role: 'PLATFORM_ADMIN',
-          token: 'jwt-platform-admin-token-' + Date.now(),
-        };
-        saveUserSession(adminUser);
-        return { success: true, user: adminUser };
-      }
-
-      if (cleanEmail.includes('victoria')) {
-        const hospUser: AuthUser = {
-          id: 'admin-victoria-1',
-          email: cleanEmail,
-          fullName: 'Dr. C. R. Shivananda (Chief Medical Officer)',
-          role: 'HOSPITAL_ADMIN',
-          hospitalId: 'hosp-victoria',
-          hospitalName: 'Victoria Hospital & Trauma Care Centre',
-          token: 'jwt-hosp-admin-token-' + Date.now(),
-        };
-        saveUserSession(hospUser);
-        return { success: true, user: hospUser };
-      }
-
-      const hospUser: AuthUser = {
-        id: 'admin-manipal-1',
-        email: cleanEmail,
-        fullName: 'Dr. L. K. Mahesh (Emergency Services Lead)',
-        role: 'HOSPITAL_ADMIN',
-        hospitalId: 'hosp-manipal-old-airport',
-        hospitalName: 'Manipal Hospital (Old Airport Road)',
-        token: 'jwt-hosp-admin-token-' + Date.now(),
-      };
-      saveUserSession(hospUser);
-      return { success: true, user: hospUser };
+      return { success: false, error: err.message || 'Authentication failed: Invalid credentials.' };
     }
   };
 
@@ -185,9 +175,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     data: Omit<HospitalAccessApplication, 'id' | 'status' | 'submittedAt'>
   ): Promise<{ success: boolean; error?: string; message?: string; applicationId?: string }> => {
     try {
-      // Commit directly to SQLite database via backend API
       const res = await submitHospitalRegistration(data);
-
       const newApp: HospitalAccessApplication = {
         ...data,
         id: res.applicationId || 'req-' + Date.now(),
@@ -195,7 +183,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         submittedAt: new Date().toISOString(),
       };
 
-      // Also cache in localStorage for offline availability
       const existing = JSON.parse(localStorage.getItem('surgewatch_pending_requests') || '[]');
       existing.unshift(newApp);
       localStorage.setItem('surgewatch_pending_requests', JSON.stringify(existing));
@@ -206,88 +193,80 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         applicationId: res.applicationId,
       };
     } catch (err: any) {
-      console.warn('Backend hospital registration failed, saving locally:', err);
-      // Fallback
-      const newApp: HospitalAccessApplication = {
-        ...data,
-        id: 'req-' + Date.now(),
-        status: 'PENDING',
-        submittedAt: new Date().toISOString(),
+      return {
+        success: false,
+        error: err.message || 'Failed to submit hospital registration dossier.',
       };
-      const existing = JSON.parse(localStorage.getItem('surgewatch_pending_requests') || '[]');
-      existing.unshift(newApp);
-      localStorage.setItem('surgewatch_pending_requests', JSON.stringify(existing));
+    }
+  };
 
+  const forgotPassword = async (
+    email: string
+  ): Promise<{ success: boolean; error?: string; message?: string; resetToken?: string }> => {
+    try {
+      const res = await forgotPasswordApi(email);
       return {
         success: true,
-        message: 'Hospital registration saved locally (offline mode).',
-        applicationId: newApp.id,
+        message: res.message,
+        resetToken: res.resetToken,
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        error: err.message || 'Failed to initiate password reset.',
       };
     }
   };
 
-  const loginDemoUser = async (role: UserRole, hospitalId?: string) => {
-    let email = 'superadmin@surgewatch.in';
-    let pass = 'SuperAdmin@123';
-
-    if (role === 'HOSPITAL_ADMIN') {
-      const isVictoria = hospitalId === 'hosp-victoria';
-      email = isVictoria ? 'admin@victoria.gov.in' : 'admin@manipal.org';
-      pass = isVictoria ? 'VictoriaAdmin@123' : 'ManipalAdmin@123';
-    } else if (role === 'PATIENT') {
-      saveUserSession({
-        id: 'patient-demo-1',
-        email: 'patient@example.com',
-        fullName: 'Arun Varma (Patient)',
-        role: 'PATIENT',
-        phone: '+91 98450 12345',
-        token: 'demo-patient-token',
-      });
-      return;
-    }
+  const resetPassword = async (
+    token: string,
+    newPass: string
+  ): Promise<{ success: boolean; error?: string; message?: string }> => {
+    if (!token.trim()) return { success: false, error: 'Reset token is required.' };
+    if (!newPass || newPass.length < 8) return { success: false, error: 'New password must be at least 8 characters.' };
 
     try {
-      const res = await loginAdminApi(email, pass, true);
-      if (res?.token && res?.user) {
-        saveUserSession({
-          ...res.user,
-          token: res.token,
-        });
-        return;
-      }
-    } catch (e) {
-      console.warn('Demo login failed with backend API, using local fallback:', e);
-    }
-
-    // Local fallback if backend is offline
-    if (role === 'PLATFORM_ADMIN') {
-      saveUserSession({
-        id: 'plat-admin-1',
-        email: 'superadmin@surgewatch.in',
-        fullName: 'SurgeWatch Platform Operations Lead',
-        role: 'PLATFORM_ADMIN',
-        token: 'demo-platform-token',
-      });
-    } else {
-      const isVictoria = hospitalId === 'hosp-victoria';
-      saveUserSession({
-        id: isVictoria ? 'admin-victoria-1' : 'admin-manipal-1',
-        email: isVictoria ? 'admin@victoria.gov.in' : 'admin@manipal.org',
-        fullName: isVictoria
-          ? 'Dr. C. R. Shivananda (Chief Medical Officer)'
-          : 'Dr. L. K. Mahesh (Emergency Services Lead)',
-        role: 'HOSPITAL_ADMIN',
-        hospitalId: isVictoria ? 'hosp-victoria' : 'hosp-manipal-old-airport',
-        hospitalName: isVictoria
-          ? 'Victoria Hospital & Trauma Care Centre'
-          : 'Manipal Hospital (Old Airport Road)',
-        token: 'demo-hosp-token',
-      });
+      const res = await resetPasswordApi(token, newPass);
+      return {
+        success: true,
+        message: res.message || 'Password successfully reset.',
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        error: err.message || 'Failed to reset password.',
+      };
     }
   };
 
-  const logout = () => {
-    saveUserSession(null);
+  const activateHospitalAdmin = async (
+    token: string,
+    newPass: string
+  ): Promise<{ success: boolean; error?: string; message?: string }> => {
+    if (!token.trim()) return { success: false, error: 'Activation token is required.' };
+    if (!newPass || newPass.length < 8) return { success: false, error: 'New password must be at least 8 characters.' };
+
+    try {
+      const res = await activateHospitalAdminApi(token, newPass);
+      return {
+        success: true,
+        message: res.message || 'Hospital administrator account successfully activated.',
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        error: err.message || 'Failed to activate hospital administrator account.',
+      };
+    }
+  };
+
+  const logout = async () => {
+    try {
+      await logoutApi();
+    } catch {
+      // Ignore network errors on logout
+    }
+    setUser(null);
   };
 
   return (
@@ -300,8 +279,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         registerPatient,
         loginAdmin,
         submitHospitalAccessRequest,
+        forgotPassword,
+        resetPassword,
+        activateHospitalAdmin,
         logout,
-        loginDemoUser,
       }}
     >
       {children}
