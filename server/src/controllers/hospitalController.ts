@@ -63,10 +63,10 @@ export const getApprovedLocations = async (_req: Request, res: Response): Promis
  */
 export const getNearbyHospitals = async (req: Request, res: Response): Promise<void> => {
   try {
-    const latStr = req.query.lat as string;
-    const lngStr = (req.query.lon as string) || (req.query.lng as string);
+    const rawLat = req.query.lat ?? req.query.latitude;
+    const rawLng = req.query.lon ?? req.query.lng ?? req.query.longitude;
 
-    if (!latStr || !lngStr) {
+    if (rawLat === undefined || rawLng === undefined || rawLat === '' || rawLng === '') {
       res.status(400).json({
         success: false,
         error: 'Missing required query parameters: lat and lon (or lng) must be provided.',
@@ -74,8 +74,8 @@ export const getNearbyHospitals = async (req: Request, res: Response): Promise<v
       return;
     }
 
-    const lat = parseFloat(latStr);
-    const lng = parseFloat(lngStr);
+    const lat = parseFloat(String(rawLat));
+    const lng = parseFloat(String(rawLng));
 
     if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
       res.status(400).json({
@@ -85,8 +85,8 @@ export const getNearbyHospitals = async (req: Request, res: Response): Promise<v
       return;
     }
 
-    const radiusParam = req.query.radiusKm || req.query.radius;
-    const radiusKm = radiusParam !== undefined ? parseFloat(radiusParam as string) : 5;
+    const radiusParam = req.query.radius_km ?? req.query.radiusKm ?? req.query.radius;
+    const radiusKm = radiusParam !== undefined && radiusParam !== '' ? parseFloat(String(radiusParam)) : 5;
 
     const supportedRadii = [5, 10, 15];
     if (!supportedRadii.includes(radiusKm)) {
@@ -125,9 +125,12 @@ export const searchHospitals = async (req: Request, res: Response): Promise<void
       return getApprovedLocations(req, res);
     }
 
-    const lat = parseFloat(req.query.lat as string) || 12.9352;
-    const lng = parseFloat((req.query.lng as string) || (req.query.lon as string)) || 77.6245;
-    const radius = parseFloat((req.query.radius as string) || (req.query.radiusKm as string)) || 10;
+    const rawLat = req.query.lat ?? req.query.latitude;
+    const rawLng = req.query.lng ?? req.query.lon ?? req.query.longitude;
+    const lat = rawLat !== undefined && rawLat !== '' ? parseFloat(String(rawLat)) : 12.9352;
+    const lng = rawLng !== undefined && rawLng !== '' ? parseFloat(String(rawLng)) : 77.6245;
+    const radiusParam = req.query.radius_km ?? req.query.radiusKm ?? req.query.radius;
+    const radius = radiusParam !== undefined && radiusParam !== '' ? parseFloat(String(radiusParam)) : 10;
     const serviceFilter = (req.query.service as string) || 'ALL';
     const sortBy = (req.query.sortBy as string) || 'distance';
 
@@ -138,11 +141,11 @@ export const searchHospitals = async (req: Request, res: Response): Promise<void
     if (serviceFilter !== 'ALL') {
       results = results.filter((hosp) => {
         if (serviceFilter === 'ICU') {
-          const icu = hosp.beds.find((b: any) => b.category === 'EMERGENCY_ICU');
+          const icu = (hosp.beds || []).find((b: any) => b.category === 'EMERGENCY_ICU');
           return (icu?.availableBeds ?? 0) > 0;
         }
         if (serviceFilter === 'ER') {
-          const er = hosp.beds.find((b: any) => b.category === 'EMERGENCY_GENERAL' || b.category === 'TRAUMA_RESUSCITATION');
+          const er = (hosp.beds || []).find((b: any) => b.category === 'EMERGENCY_GENERAL' || b.category === 'TRAUMA_RESUSCITATION');
           return (er?.availableBeds ?? 0) > 0;
         }
         if (serviceFilter === 'DOCTORS') {
@@ -152,10 +155,10 @@ export const searchHospitals = async (req: Request, res: Response): Promise<void
           return (hosp.staffSummary?.nursesAvailable ?? 0) > 0;
         }
         if (serviceFilter === 'TRAUMA') {
-          return hosp.emergencyServices.some((s: string) => s.toLowerCase().includes('trauma'));
+          return (hosp.emergencyServices || []).some((s: string) => s.toLowerCase().includes('trauma'));
         }
         if (serviceFilter === 'AMBULANCE') {
-          const ready = hosp.ambulances.reduce((acc: number, a: any) => acc + (a.availableReadyCount ?? 0), 0);
+          const ready = (hosp.ambulances || []).reduce((acc: number, a: any) => acc + (a.availableReadyCount ?? 0), 0);
           return ready > 0;
         }
         return true;
@@ -166,13 +169,13 @@ export const searchHospitals = async (req: Request, res: Response): Promise<void
     results.sort((a, b) => {
       if (sortBy === 'distance') return a.distanceKm - b.distanceKm;
       if (sortBy === 'beds') {
-        const aBeds = a.beds.reduce((acc: number, x: any) => acc + (x.availableBeds || 0), 0);
-        const bBeds = b.beds.reduce((acc: number, x: any) => acc + (x.availableBeds || 0), 0);
+        const aBeds = (a.beds || []).reduce((acc: number, x: any) => acc + (x.availableBeds || 0), 0);
+        const bBeds = (b.beds || []).reduce((acc: number, x: any) => acc + (x.availableBeds || 0), 0);
         return bBeds - aBeds;
       }
       if (sortBy === 'ambulances') {
-        const aAmb = a.ambulances.reduce((acc: number, x: any) => acc + (x.availableReadyCount || 0), 0);
-        const bAmb = b.ambulances.reduce((acc: number, x: any) => acc + (x.availableReadyCount || 0), 0);
+        const aAmb = (a.ambulances || []).reduce((acc: number, x: any) => acc + (x.availableReadyCount || 0), 0);
+        const bAmb = (b.ambulances || []).reduce((acc: number, x: any) => acc + (x.availableReadyCount || 0), 0);
         return bAmb - aAmb;
       }
       return 0;
