@@ -61,34 +61,39 @@ function createAccidentIcon(isLiveTracking: boolean = false) {
 }
 
 // Custom Numbered Hospital Pins (#1, #2, #3, ...)
-function createHospitalIcon(rank: number) {
+function createHospitalIcon(rank: number, isSelected: boolean = false) {
   const isTopThree = rank <= 3;
-  const bg = isTopThree ? '#0F172A' : '#1E293B';
-  const border = isTopThree ? '#38BDF8' : '#94A3B8';
-  const text = isTopThree ? '#38BDF8' : '#F8FAFC';
+  const bg = isSelected ? '#0284C7' : isTopThree ? '#0F172A' : '#1E293B';
+  const border = isSelected ? '#38BDF8' : isTopThree ? '#38BDF8' : '#94A3B8';
+  const text = isSelected ? '#FFFFFF' : isTopThree ? '#38BDF8' : '#F8FAFC';
+  const boxShadow = isSelected
+    ? '0 0 0 4px rgba(56, 189, 248, 0.5), 0 8px 16px rgba(2, 132, 199, 0.4)'
+    : '0 4px 10px rgba(0, 0, 0, 0.35)';
 
   return new L.DivIcon({
-    className: `custom-hospital-pin-${rank}`,
+    className: `custom-hospital-pin-${rank} ${isSelected ? 'custom-hospital-pin-selected' : ''}`,
     html: `<div style="
-      width: 32px;
-      height: 32px;
+      width: ${isSelected ? '36px' : '32px'};
+      height: ${isSelected ? '36px' : '32px'};
       background: ${bg};
-      border: 2px solid ${border};
+      border: ${isSelected ? '3px' : '2px'} solid ${border};
       border-radius: 9px;
       display: flex;
       align-items: center;
       justify-content: center;
       color: ${text};
       font-weight: 800;
-      font-size: 13px;
+      font-size: ${isSelected ? '14px' : '13px'};
       font-family: sans-serif;
-      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35);
+      box-shadow: ${boxShadow};
       cursor: pointer;
+      transform: ${isSelected ? 'scale(1.15)' : 'scale(1)'};
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
     ">
       ${rank}
     </div>`,
-    iconSize: [32, 32],
-    iconAnchor: [16, 16],
+    iconSize: isSelected ? [36, 36] : [32, 32],
+    iconAnchor: isSelected ? [18, 18] : [16, 16],
   });
 }
 
@@ -102,6 +107,28 @@ const MapController: FC<MapControllerProps> = ({ center, zoom }) => {
   useEffect(() => {
     map.flyTo(center, zoom, { duration: 0.8 });
   }, [center, zoom, map]);
+  return null;
+};
+
+interface MapHospitalFocusControllerProps {
+  selectedHospital?: Hospital | null;
+}
+
+const MapHospitalFocusController: FC<MapHospitalFocusControllerProps> = ({ selectedHospital }) => {
+  const map = useMap();
+  useEffect(() => {
+    if (
+      selectedHospital &&
+      typeof selectedHospital.latitude === 'number' &&
+      typeof selectedHospital.longitude === 'number' &&
+      !isNaN(selectedHospital.latitude) &&
+      !isNaN(selectedHospital.longitude)
+    ) {
+      map.flyTo([selectedHospital.latitude, selectedHospital.longitude], Math.max(map.getZoom(), 14), {
+        duration: 0.8,
+      });
+    }
+  }, [selectedHospital, map]);
   return null;
 };
 
@@ -124,6 +151,7 @@ interface MapPreviewProps {
   accidentLocation: LocationState | { lat: number; lng: number; label: string; accuracyMeters?: number };
   radiusKm: number;
   hospitals: Hospital[];
+  selectedHospital?: Hospital | null;
   isTrackingLive?: boolean;
   onSelectHospital?: (hospital: Hospital) => void;
   onMapClick?: (lat: number, lng: number) => void;
@@ -133,11 +161,41 @@ export const MapPreview: FC<MapPreviewProps> = ({
   accidentLocation,
   radiusKm,
   hospitals,
+  selectedHospital,
   isTrackingLive = false,
   onSelectHospital,
   onMapClick,
 }) => {
   const markerRef = useRef<L.Marker | null>(null);
+  const hospitalMarkerRefs = useRef<Map<string, L.Marker>>(new Map());
+
+  // Deduplicate and validate hospitals before rendering to ensure no duplicate markers
+  const uniqueHospitals = useMemo(() => {
+    const seen = new Set<string>();
+    return hospitals.filter((hosp) => {
+      if (!hosp || !hosp.id || seen.has(hosp.id)) return false;
+      if (
+        typeof hosp.latitude !== 'number' ||
+        typeof hosp.longitude !== 'number' ||
+        isNaN(hosp.latitude) ||
+        isNaN(hosp.longitude)
+      ) {
+        return false;
+      }
+      seen.add(hosp.id);
+      return true;
+    });
+  }, [hospitals]);
+
+  // Open popup for selected hospital when changed
+  useEffect(() => {
+    if (selectedHospital && selectedHospital.id) {
+      const marker = hospitalMarkerRefs.current.get(selectedHospital.id);
+      if (marker) {
+        marker.openPopup();
+      }
+    }
+  }, [selectedHospital]);
 
   const getZoom = (radius: number) => {
     if (radius <= 5) return 13;
@@ -171,6 +229,7 @@ export const MapPreview: FC<MapPreviewProps> = ({
         className="w-full h-full"
       >
         <MapController center={center} zoom={getZoom(radiusKm)} />
+        <MapHospitalFocusController selectedHospital={selectedHospital} />
         <MapEventsHandler onMapClick={onMapClick} />
 
         {/* Basemap Tiles with API Key Integration */}
@@ -242,15 +301,24 @@ export const MapPreview: FC<MapPreviewProps> = ({
         </Marker>
 
         {/* Numbered Hospital Markers (All Matching Hospitals in Radius) */}
-        {hospitals.map((hosp, idx) => {
+        {uniqueHospitals.map((hosp, idx) => {
           const rank = idx + 1;
+          const isSelected = selectedHospital?.id === hosp.id;
           const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${hosp.latitude},${hosp.longitude}`;
 
           return (
             <Marker
               key={hosp.id}
               position={[hosp.latitude, hosp.longitude]}
-              icon={createHospitalIcon(rank)}
+              icon={createHospitalIcon(rank, isSelected)}
+              zIndexOffset={isSelected ? 1000 : undefined}
+              ref={(node) => {
+                if (node) {
+                  hospitalMarkerRefs.current.set(hosp.id, node);
+                } else {
+                  hospitalMarkerRefs.current.delete(hosp.id);
+                }
+              }}
               eventHandlers={{
                 click: () => onSelectHospital?.(hosp),
               }}
@@ -274,7 +342,7 @@ export const MapPreview: FC<MapPreviewProps> = ({
                   <div className="mt-2 text-[10px] font-medium text-slate-600 bg-slate-50 p-1.5 rounded border border-slate-200">
                     {hosp.capacityConnected ? (
                       <span className="text-emerald-700 font-bold">
-                        ICU Beds: {hosp.beds.find((b) => b.category === 'EMERGENCY_ICU')?.availableBeds ?? 0} Available
+                        ICU Beds: {(hosp.beds || []).find((b) => b.category === 'EMERGENCY_ICU')?.availableBeds ?? hosp.bedsSummary?.icuBeds?.available ?? 0} Available
                       </span>
                     ) : (
                       <span className="text-slate-600">
