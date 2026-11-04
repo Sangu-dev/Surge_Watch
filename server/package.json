@@ -6,7 +6,7 @@
   "main": "src/index.ts",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc",
+    "build": "prisma generate && tsc",
     "start": "node dist/index.js",
     "seed": "tsx prisma/seed.ts",
     "test": "echo \"Stage 2 & 3 Tests Passing\" && exit 0",

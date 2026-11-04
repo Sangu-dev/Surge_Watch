@@ -1,9 +1,10 @@
 // SurgeWatch Relational Database Schema
-// Optimized for zero-friction local development (SQLite) and 100% production-compatible with PostgreSQL
+// Production-configured for Supabase PostgreSQL (Supports Supavisor / PgBouncer connection pooling)
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 generator client {

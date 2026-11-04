@@ -1,6 +1,7 @@
-// API client connecting frontend to backend server on port 5000 with resilient mock fallback
+// API client connecting frontend to backend server with resilient mock fallback
 
-export const API_BASE = 'http://localhost:5000/api/v1';
+const rawApiBase = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000').trim().replace(/\/+$/, '');
+export const API_BASE = rawApiBase.endsWith('/api/v1') ? rawApiBase : `${rawApiBase}/api/v1`;
 
 export async function submitHospitalRegistration(payload: {
   hospitalName: string;
