@@ -8,11 +8,22 @@ const devOrigins = [
 ];
 
 export const getTrustedOrigins = (): string[] => {
-  const configuredProdOrigins = [
+  const envRaw = [
     process.env.CLIENT_ORIGIN,
     process.env.FRONTEND_URL,
     process.env.CLIENT_URL,
   ].filter(Boolean) as string[];
+
+  // Support comma-separated strings and strip trailing slashes
+  const configuredProdOrigins: string[] = [];
+  for (const raw of envRaw) {
+    for (const item of raw.split(',')) {
+      const trimmed = item.trim().replace(/\/+$/, '');
+      if (trimmed && !configuredProdOrigins.includes(trimmed)) {
+        configuredProdOrigins.push(trimmed);
+      }
+    }
+  }
 
   if (process.env.NODE_ENV === 'production') {
     return configuredProdOrigins;
@@ -24,10 +35,24 @@ export const getTrustedOrigins = (): string[] => {
  * Validates origin against allowed origins list
  */
 export const isTrustedOrigin = (origin: string): boolean => {
+  if (!origin) return false;
+  const normalizedOrigin = origin.trim().replace(/\/+$/, '');
   const allowed = getTrustedOrigins();
-  if (allowed.includes(origin)) return true;
+
+  if (allowed.includes(normalizedOrigin)) return true;
+
+  // Support wildcard domains e.g. https://*.vercel.app
+  for (const allowedOrigin of allowed) {
+    if (allowedOrigin.includes('*')) {
+      const regexStr = '^' + allowedOrigin.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$';
+      if (new RegExp(regexStr).test(normalizedOrigin)) {
+        return true;
+      }
+    }
+  }
+
   // In development/test, allow localhost origins on any port
-  if (process.env.NODE_ENV !== 'production' && (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:'))) {
+  if (process.env.NODE_ENV !== 'production' && (normalizedOrigin.startsWith('http://localhost:') || normalizedOrigin.startsWith('http://127.0.0.1:'))) {
     return true;
   }
   return false;
@@ -37,9 +62,9 @@ export const isTrustedOrigin = (origin: string): boolean => {
  * CSRF Defense Middleware for cookie-authenticated and state-changing endpoints
  * 
  * Verifies that:
- * 1. Sec-Fetch-Site is not 'cross-site'
- * 2. If an Origin header is provided, it must belong to explicitly trusted origins
- * 3. If a Referer header is provided, its origin must belong to explicitly trusted origins
+ * 1. If an Origin header is provided, it must belong to explicitly trusted origins
+ * 2. If a Referer header is provided, its origin must belong to explicitly trusted origins
+ * 3. Cross-site requests without a verified origin are rejected
  */
 export const csrfProtection = (req: Request, res: Response, next: NextFunction): void => {
   // Safe HTTP read methods are exempt from CSRF
@@ -51,16 +76,7 @@ export const csrfProtection = (req: Request, res: Response, next: NextFunction):
   const referer = req.headers.referer;
   const secFetchSite = req.headers['sec-fetch-site'];
 
-  // Check 1: Explicit cross-site fetch indicator from modern browsers
-  if (secFetchSite === 'cross-site') {
-    res.status(403).json({
-      success: false,
-      error: 'Cross-Site Request Forgery (CSRF) blocked: Browser Sec-Fetch-Site indicates an untrusted cross-site request.',
-    });
-    return;
-  }
-
-  // Check 2: Origin header validation
+  // Check 1: Origin header validation
   if (origin) {
     if (!isTrustedOrigin(origin)) {
       res.status(403).json({
@@ -72,7 +88,7 @@ export const csrfProtection = (req: Request, res: Response, next: NextFunction):
     return next();
   }
 
-  // Check 3: Referer header fallback validation
+  // Check 2: Referer header fallback validation
   if (referer) {
     try {
       const refererOrigin = new URL(referer).origin;
@@ -93,8 +109,16 @@ export const csrfProtection = (req: Request, res: Response, next: NextFunction):
     }
   }
 
-  // If request has no Origin/Referer (e.g. CLI tools, automated integration tests, mobile clients):
-  // Proceed safely
+  // Check 3: If Sec-Fetch-Site indicates untrusted cross-site request without valid Origin/Referer
+  if (secFetchSite === 'cross-site') {
+    res.status(403).json({
+      success: false,
+      error: 'Cross-Site Request Forgery (CSRF) blocked: Untrusted cross-site request.',
+    });
+    return;
+  }
+
+  // If request has no Origin/Referer (e.g. CLI tools, automated scripts):
   next();
 };
 
