@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { reverseGeocodeCoordinates, resolveIpLocation } from '../services/locationService.js';
+import { reverseGeocodeCoordinates, resolveIpLocation, resolveCoordinatesForArea } from '../services/locationService.js';
 
 export const handleReverseGeocode = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -33,5 +33,28 @@ export const handleIpLookup = async (req: Request, res: Response): Promise<void>
   } catch (error) {
     console.error('IP lookup error:', error);
     res.status(500).json({ success: false, error: 'Failed to lookup approximate IP location.' });
+  }
+};
+
+export const handleGeocodeArea = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const q = (req.query.q as string) || (req.query.query as string) || (req.query.area as string);
+    if (!q || !q.trim()) {
+      res.status(400).json({ success: false, error: 'Query parameter "q" is required.' });
+      return;
+    }
+
+    const coords = await resolveCoordinatesForArea(q.trim());
+    res.json({
+      success: true,
+      data: {
+        query: q.trim(),
+        latitude: coords.latitude,
+        longitude: coords.longitude,
+      },
+    });
+  } catch (error) {
+    console.error('Geocode error:', error);
+    res.status(500).json({ success: false, error: 'Failed to geocode query.' });
   }
 };

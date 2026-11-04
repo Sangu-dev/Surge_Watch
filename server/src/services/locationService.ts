@@ -1,4 +1,5 @@
 import { calculateHaversineDistance } from '../utils/spatial.js';
+import { prisma } from '../prisma.js';
 
 interface ReverseGeocodeResult {
   locality: string;
@@ -178,7 +179,29 @@ export async function resolveCoordinatesForArea(
     return { latitude: matchedZone.lat, longitude: matchedZone.lng };
   }
 
-  // 2. Try Nominatim Geocoding API if query is reasonably descriptive
+  // 2. Check direct match with persistent verified database hospitals
+  try {
+    const hospMatch = await prisma.hospital.findFirst({
+      where: {
+        OR: [
+          { name: { contains: cleanArea } },
+          { address: { contains: cleanArea } },
+          { area: { contains: cleanArea } },
+          { slug: { contains: cleanArea } },
+        ],
+        verificationStatus: { in: ['VERIFIED', 'APPROVED'] },
+      },
+      select: { latitude: true, longitude: true },
+    });
+
+    if (hospMatch && hospMatch.latitude && hospMatch.longitude) {
+      return { latitude: hospMatch.latitude, longitude: hospMatch.longitude };
+    }
+  } catch {
+    // Database query error, continue to Nominatim
+  }
+
+  // 3. Try Nominatim Geocoding API if query is reasonably descriptive
   const searchQuery = `${area}, Bengaluru, Karnataka, India`;
   try {
     const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(
